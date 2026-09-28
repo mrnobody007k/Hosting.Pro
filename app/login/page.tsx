@@ -1,5 +1,5 @@
-import { notFound } from 'next/navigation'
+import LoginForm from './LoginForm'
 
 export default function LoginPage() {
-  notFound()
+  return <LoginForm role="USER" />
 }

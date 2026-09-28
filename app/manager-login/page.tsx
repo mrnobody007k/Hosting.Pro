@@ -1,5 +1,5 @@
-import { notFound } from 'next/navigation'
+import LoginForm from '../login/LoginForm'
 
 export default function ManagerLoginPage() {
-  notFound()
+  return <LoginForm role="MANAGER" />
 }
