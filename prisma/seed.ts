@@ -69,12 +69,13 @@ async function main() {
     }
 
     console.warn('Super Admin environment variables not provided. Creating development-only default admin (STAFF_ADMIN).')
+    const devAdminEmail = superAdminEmail || 'dev-admin@localhost.invalid'
     await prisma.adminUser.upsert({
-      where: { email: 'admin@example.com' },
+      where: { email: devAdminEmail },
       update: {},
-      create: { name: 'Main Admin', email: 'admin@example.com', passwordHash: hash },
+      create: { name: 'Main Admin', email: devAdminEmail, passwordHash: hash },
     })
-    console.log('Created development-only default admin (STAFF_ADMIN): admin@example.com')
+    console.log(`Created development-only default admin (STAFF_ADMIN): ${devAdminEmail}`)
     return
   }
 
