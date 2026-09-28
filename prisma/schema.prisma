@@ -1,0 +1,381 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+}
+
+enum AdminType {
+  SUPER_ADMIN
+  STAFF_ADMIN
+}
+
+enum Status {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  ADJUSTMENT
+  PROFIT
+  WELCOME_BONUS
+}
+
+enum SignupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MembershipStatus {
+  PENDING_APPROVAL
+  DAY_1
+  DAY_2
+  OFFICIAL_MEMBER
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  SOLD_OUT
+}
+
+enum OrderStatus {
+  PAYMENT_PENDING
+  PAYMENT_SUBMITTED
+  PAYMENT_VERIFIED
+  ACTIVE
+  RE_RENT_PENDING
+  RE_RENTED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  COMPLETED
+  REJECTED
+}
+
+enum TaskType {
+  DAY_2_MORNING
+  DAY_2_AFTERNOON
+  DAY_3_OFFICIAL
+  RE_RENT
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ORDER
+  TASK
+  WALLET
+  SYSTEM
+}
+
+model PlatformSetting {
+  id                       String   @id @default(cuid())
+  managerSeatLimit         Int      @default(10)
+  welcomeBalance           Decimal  @default(120) @db.Decimal(18, 2)
+  day2ProfitRate           Decimal  @default(1.20) @db.Decimal(5, 2)
+  day3ProfitRate           Decimal  @default(1.40) @db.Decimal(5, 2)
+  rerentProfitRate         Decimal  @default(1.20) @db.Decimal(5, 2)
+  rerentDelaySeconds       Int      @default(90)
+  depositInstructions      String   @default("Please make your payment to the account provided by your assigned manager. After payment, submit your payment reference/proof. Your balance will be updated after manual verification.")
+  customerLoginAccessToken String?
+  managerLoginAccessToken  String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model Manager {
+  id                    String   @id @default(cuid())
+  name                  String
+  email                 String   @unique
+  passwordHash          String
+  referralCode          String   @unique
+  paymentAccountLabel   String?
+  paymentAccountDetails String?
+  status                Status   @default(ACTIVE)
+  createdAt             DateTime @default(now())
+
+  users        User[]
+  deposits     Deposit[]
+  withdrawals  Withdrawal[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+  properties   Property[]
+  orders       Order[]
+  tasks        Task[]
+}
+
+model User {
+  id                  String  @id @default(cuid())
+  name                String
+  email               String  @unique
+  age                 Int?
+  profession          String?
+  phone               String?
+  passwordHash        String
+  paymentPasswordHash String?
+  status              Status  @default(ACTIVE)
+
+  signupStatus     SignupStatus     @default(PENDING)
+  membershipStatus MembershipStatus @default(PENDING_APPROVAL)
+  approvedAt       DateTime?
+  officialMemberAt DateTime?
+
+  managerId String
+  manager   Manager @relation(fields: [managerId], references: [id], onDelete: Restrict)
+
+  wallet        Wallet?
+  deposits      Deposit[]
+  withdrawals   Withdrawal[]
+  transactions  Transaction[]
+  orders        Order[]
+  tasks         Task[]
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+
+  @@index([managerId])
+  @@index([managerId, signupStatus])
+  @@index([managerId, membershipStatus])
+}
+
+model Wallet {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  balance         Decimal  @default(0) @db.Decimal(18, 2)
+  reservedBalance Decimal  @default(0) @db.Decimal(18, 2)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt       DateTime @updatedAt
+}
+
+model Deposit {
+  id          String        @id @default(cuid())
+  userId      String
+  managerId   String
+  amount      Decimal       @db.Decimal(18, 2)
+  reference   String?
+  proofUrl    String?
+  status      RequestStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Restrict)
+
+  @@index([managerId, status])
+  @@index([userId, status])
+}
+
+model Withdrawal {
+  id             String        @id @default(cuid())
+  userId         String
+  managerId      String
+  amount         Decimal       @db.Decimal(18, 2)
+  method         String?
+  accountDetails String?
+  reference      String?
+  status         RequestStatus @default(PENDING)
+  note           String?
+  createdAt      DateTime      @default(now())
+  processedAt    DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Restrict)
+
+  @@index([managerId, status])
+  @@index([userId, status])
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  userId        String
+  managerId     String
+  type          TransactionType
+  amount        Decimal         @db.Decimal(18, 2)
+  balanceBefore Decimal         @db.Decimal(18, 2)
+  balanceAfter  Decimal         @db.Decimal(18, 2)
+  reference     String?
+  note          String?
+  createdAt     DateTime        @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Restrict)
+
+  @@index([managerId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model Property {
+  id          String         @id @default(cuid())
+  managerId   String?
+  title       String
+  location    String?
+  description String?
+  price       Decimal        @db.Decimal(18, 2)
+  imageUrl    String?
+  propertyUrl String?
+  status      PropertyStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  manager Manager? @relation(fields: [managerId], references: [id], onDelete: SetNull)
+  orders  Order[]
+
+  @@index([status])
+  @@index([managerId])
+}
+
+model Order {
+  id        String @id @default(cuid())
+  orderCode String @unique
+
+  userId     String
+  managerId  String
+  propertyId String
+
+  amount          Decimal @db.Decimal(18, 2)
+  storehousePrice Decimal @default(0) @db.Decimal(18, 2)
+  profit          Decimal @default(0) @db.Decimal(18, 2)
+  profitRate      Decimal @default(1.20) @db.Decimal(5, 2)
+
+  status        OrderStatus   @default(PAYMENT_PENDING)
+  paymentStatus RequestStatus @default(PENDING)
+
+  paymentReference String?
+  paymentProofUrl  String?
+
+  bookedAt           DateTime?
+  paymentSubmittedAt DateTime?
+  paymentVerifiedAt  DateTime?
+  activatedAt        DateTime?
+  rerentRequestedAt  DateTime?
+  rerentedAt         DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  manager  Manager  @relation(fields: [managerId], references: [id], onDelete: Restrict)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  tasks    Task[]
+
+  @@index([userId, status])
+  @@index([managerId, status])
+  @@index([propertyId])
+}
+
+model Task {
+  id String @id @default(cuid())
+
+  userId    String
+  managerId String
+  orderId   String?
+
+  type        TaskType
+  title       String
+  description String?
+  propertyUrl String?
+
+  dayNumber    Int
+  profitRate   Decimal @default(1.20) @db.Decimal(5, 2)
+  profitAmount Decimal @default(0) @db.Decimal(18, 2)
+
+  status TaskStatus @default(PENDING)
+
+  assignedAt  DateTime  @default(now())
+  startedAt   DateTime?
+  submittedAt DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Restrict)
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([managerId, status])
+  @@index([orderId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType @default(INFO)
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  Role
+  actorId    String
+  managerId  String?
+  action     String
+  targetType String?
+  targetId   String?
+  amount     Decimal? @db.Decimal(18, 2)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  manager Manager? @relation(fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([managerId, createdAt])
+}
+
+model AdminUser {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  status       Status     @default(ACTIVE)
+  adminType    AdminType  @default(STAFF_ADMIN)
+  permissions  String[]   @default([])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}

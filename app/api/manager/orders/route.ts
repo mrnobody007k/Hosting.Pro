@@ -1,0 +1,458 @@
+﻿import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { getSession } from '@/lib/auth'
+import {
+  readJson,
+  requireSameOrigin,
+  handleRequestSecurityError,
+} from '@/lib/security'
+
+export async function GET() {
+  try {
+    const session = await getSession()
+
+    if (
+      !session ||
+      session.role !== 'MANAGER' ||
+      !session.managerId
+    ) {
+      return NextResponse.json(
+        { error: 'Unauthorized.' },
+        { status: 401 },
+      )
+    }
+
+    const orders = await prisma.order.findMany({
+      where: {
+        managerId: session.managerId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            managerId: true,
+          },
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+            location: true,
+            price: true,
+          },
+        },
+        tasks: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    })
+
+    return NextResponse.json({
+      orders: orders.map((order) => ({
+        ...order,
+        amount: order.amount.toString(),
+        storehousePrice: order.storehousePrice.toString(),
+        profit: order.profit.toString(),
+        profitRate: order.profitRate.toString(),
+        property: order.property
+          ? {
+              ...order.property,
+              price: order.property.price.toString(),
+            }
+          : null,
+        tasks: order.tasks.map((task) => ({
+          ...task,
+          profitRate: task.profitRate.toString(),
+          profitAmount: task.profitAmount.toString(),
+        })),
+      })),
+    })
+  } catch (error) {
+    console.error('MANAGER_ORDERS_GET_ERROR', error)
+
+    return NextResponse.json(
+      { error: 'Unable to load manager orders.' },
+      { status: 500 },
+    )
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    requireSameOrigin(req)
+
+    const session = await getSession()
+
+    if (
+      !session ||
+      session.role !== 'MANAGER' ||
+      !session.managerId
+    ) {
+      return NextResponse.json(
+        { error: 'Unauthorized.' },
+        { status: 401 },
+      )
+    }
+
+    const body = await readJson<{
+      orderId?: unknown
+      action?: unknown
+      paymentReference?: unknown
+    }>(req)
+
+    const orderId = String(body.orderId || '').trim()
+    const action = String(body.action || '')
+      .trim()
+      .toUpperCase()
+
+    const paymentReference = String(
+      body.paymentReference || '',
+    )
+      .trim()
+      .slice(0, 500)
+
+    if (!orderId || orderId.length > 100) {
+      return NextResponse.json(
+        { error: 'Valid order ID is required.' },
+        { status: 400 },
+      )
+    }
+
+    if (
+      !['VERIFY_PAYMENT', 'CANCEL'].includes(action)
+    ) {
+      return NextResponse.json(
+        { error: 'Invalid order action.' },
+        { status: 400 },
+      )
+    }
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        /*
+         * Ownership is checked through BOTH:
+         *
+         * Order.managerId === session.managerId
+         * User.managerId === session.managerId
+         *
+         * Therefore changing an orderId can never give one
+         * manager access to another manager's client's order.
+         */
+        const order = await tx.order.findFirst({
+          where: {
+            id: orderId,
+            managerId: session.managerId!,
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                managerId: true,
+                status: true,
+                signupStatus: true,
+              },
+            },
+            property: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        })
+
+        if (!order) {
+          throw new Error('ORDER_NOT_FOUND')
+        }
+
+        if (order.user.managerId !== session.managerId) {
+          throw new Error('OWNERSHIP_MISMATCH')
+        }
+
+        if (order.user.status !== 'ACTIVE' || order.user.signupStatus !== 'APPROVED') {
+          throw new Error('USER_INACTIVE')
+        }
+
+        if (action === 'CANCEL') {
+          if (
+            order.status === 'COMPLETED' ||
+            order.status === 'RE_RENTED'
+          ) {
+            throw new Error('CANNOT_CANCEL_COMPLETED')
+          }
+
+          if (order.status === 'CANCELLED') {
+            throw new Error('ORDER_ALREADY_PROCESSED')
+          }
+
+          const cancelledAt = new Date()
+
+          const cancelled = await tx.order.updateMany({
+            where: {
+              id: order.id,
+              managerId: session.managerId!,
+              status: {
+                notIn: [
+                  'COMPLETED',
+                  'RE_RENTED',
+                  'CANCELLED',
+                ],
+              },
+            },
+            data: {
+              status: 'CANCELLED',
+              cancelledAt,
+            },
+          })
+
+          if (cancelled.count !== 1) {
+            throw new Error('ORDER_ALREADY_PROCESSED')
+          }
+
+          await tx.notification.create({
+            data: {
+              userId: order.userId,
+              type: 'ORDER',
+              title: 'Order cancelled',
+              message: `Order ${order.orderCode} has been cancelled by your manager.`,
+            },
+          })
+
+          await tx.auditLog.create({
+            data: {
+              actorType: 'MANAGER',
+              actorId: session.sub,
+              managerId: session.managerId!,
+              action: 'ORDER_CANCELLED',
+              targetType: 'ORDER',
+              targetId: order.id,
+              amount: order.amount,
+              metadata: {
+                orderCode: order.orderCode,
+                userId: order.userId,
+                previousStatus: order.status,
+                reason: 'Manager cancellation',
+              },
+            },
+          })
+
+          return {
+            type: 'CANCEL' as const,
+            order: {
+              ...order,
+              status: 'CANCELLED',
+              cancelledAt,
+            },
+          }
+        }
+
+        if (
+          order.status !== 'PAYMENT_SUBMITTED' ||
+          order.paymentStatus !== 'PENDING' ||
+          (!order.paymentReference?.trim() && !order.paymentProofUrl?.trim())
+        ) {
+          throw new Error('PAYMENT_NOT_PENDING')
+        }
+
+        const verifiedAt = new Date()
+
+        const updated = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            managerId: session.managerId!,
+            status: 'PAYMENT_SUBMITTED',
+            paymentStatus: 'PENDING',
+            OR: [
+              { paymentReference: { not: null } },
+              { paymentProofUrl: { not: null } },
+            ],
+          },
+          data: {
+            status: 'ACTIVE',
+            paymentStatus: 'PAID',
+            paymentReference:
+              paymentReference ||
+              order.paymentReference,
+            paymentVerifiedAt: verifiedAt,
+            activatedAt: verifiedAt,
+          },
+        })
+
+        if (updated.count !== 1) {
+          throw new Error('ORDER_ALREADY_PROCESSED')
+        }
+
+        const updatedOrder =
+          await tx.order.findUnique({
+            where: {
+              id: order.id,
+            },
+          })
+
+        if (!updatedOrder) {
+          throw new Error('ORDER_NOT_FOUND')
+        }
+
+        await tx.notification.create({
+          data: {
+            userId: order.userId,
+            type: 'ORDER',
+            title: 'Payment verified',
+            message: `Payment for order ${order.orderCode} has been verified. Your order is now active.`,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            actorType: 'MANAGER',
+            actorId: session.sub,
+            managerId: session.managerId!,
+            action: 'ORDER_PAYMENT_VERIFIED',
+            targetType: 'ORDER',
+            targetId: order.id,
+            amount: order.amount,
+            metadata: {
+              orderCode: order.orderCode,
+              userId: order.userId,
+              paymentReference:
+                paymentReference ||
+                order.paymentReference ||
+                null,
+              previousStatus: order.status,
+            },
+          },
+        })
+
+        return {
+          type: 'VERIFY_PAYMENT' as const,
+          order: updatedOrder,
+        }
+      },
+      {
+        isolationLevel: 'Serializable',
+      },
+    )
+
+    if (result.type === 'CANCEL') {
+      return NextResponse.json({
+        message: 'Order cancelled successfully.',
+        order: {
+          ...result.order,
+          amount: result.order.amount.toString(),
+        },
+      })
+    }
+
+    return NextResponse.json({
+      message:
+        'Payment verified and order activated.',
+      order: {
+        ...result.order,
+        amount: result.order.amount.toString(),
+      },
+    })
+  } catch (error) {
+    const securityResponse =
+      handleRequestSecurityError(error)
+
+    if (securityResponse) {
+      return securityResponse
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'ORDER_NOT_FOUND'
+    ) {
+      return NextResponse.json(
+        { error: 'Order not found.' },
+        { status: 404 },
+      )
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'OWNERSHIP_MISMATCH'
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'This order does not belong to your client.',
+        },
+        { status: 403 },
+      )
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'USER_INACTIVE'
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'This client account is not currently active.',
+        },
+        { status: 403 },
+      )
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'CANNOT_CANCEL_COMPLETED'
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Completed orders cannot be cancelled.',
+        },
+        { status: 400 },
+      )
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'PAYMENT_NOT_PENDING'
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'This order is not waiting for payment verification.',
+        },
+        { status: 400 },
+      )
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === 'ORDER_ALREADY_PROCESSED'
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Order has already been processed.',
+        },
+        { status: 409 },
+      )
+    }
+
+    console.error(
+      'MANAGER_ORDER_ACTION_ERROR',
+      error,
+    )
+
+    return NextResponse.json(
+      {
+        error:
+          'Unable to process order action.',
+      },
+      { status: 500 },
+    )
+  }
+}

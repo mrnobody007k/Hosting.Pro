@@ -1,0 +1,40 @@
+{
+  "name": "marketplace-platform",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:test-fixtures": "tsx scripts/create-local-test-fixtures.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "3.0.2",
+    "decimal.js": "^10.6.0",
+    "jose": "6.1.0",
+    "next": "^16.3.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "@types/react": "19.1.6",
+    "@types/react-dom": "19.1.5",
+    "prisma": "6.19.3",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.1"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.25.12": true,
+    "prisma@6.19.3": true
+  }
+}
