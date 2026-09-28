@@ -55,11 +55,26 @@ async function main() {
 
   const existingSuperAdmin = await prisma.adminUser.findFirst({
     where: { adminType: 'SUPER_ADMIN' },
-    select: { id: true, email: true, name: true },
+    select: { id: true, email: true, name: true, passwordHash: true },
   })
 
   if (existingSuperAdmin) {
-    console.log(`Super Admin already exists: ${existingSuperAdmin.email}. Skipping Super Admin provisioning. No changes made.`)
+    if (!superAdminPassword) {
+      console.log(`Super Admin already exists: ${existingSuperAdmin.email}. SUPER_ADMIN_PASSWORD not set, skipping password update.`)
+      return
+    }
+    // Check if password needs to be updated
+    const passwordMatches = await bcrypt.compare(superAdminPassword!, existingSuperAdmin.passwordHash)
+    if (!passwordMatches) {
+      const superAdminHash = await bcrypt.hash(superAdminPassword!, 12)
+      await prisma.adminUser.update({
+        where: { id: existingSuperAdmin.id },
+        data: { passwordHash: superAdminHash },
+      })
+      console.log(`Super Admin password updated for: ${existingSuperAdmin.email}`)
+    } else {
+      console.log(`Super Admin already exists: ${existingSuperAdmin.email}. Password is up to date.`)
+    }
     return
   }
 
