@@ -4,16 +4,25 @@ import { ReactNode, useCallback, useEffect, useState } from "react"
 import { Decimal } from "decimal.js"
 
 export type CustomerOverview = {
-  user?: { id: string; name: string; email: string; age?: number | null; profession?: string | null; phone?: string | null; status?: string; membershipStatus?: string; approvedAt?: string | null; officialMemberAt?: string | null; createdAt?: string; hasPaymentPassword?: boolean }
+  user?: { id: string; name: string; email: string; age?: number | null; profession?: string | null; phone?: string | null; status?: string; membershipStatus?: string; approvedAt?: string | null; officialMemberAt?: string | null; createdAt?: string; hasPaymentPassword?: boolean; wallet?: { balance?: string | number; reservedBalance?: string | number } | null }
   wallet?: { balance?: string | number; reservedBalance?: string | number }
   availableBalance?: string | number
-  transactions?: Array<{ id: string; type: string; amount: string | number; balanceBefore: string | number; balanceAfter: string | number; createdAt: string; note?: string | null }>
-  deposits?: Array<{ id: string; amount: string | number; reference?: string | null; status: string; createdAt: string; processedAt?: string | null }>
-  withdrawals?: Array<{ id: string; amount: string | number; method?: string | null; status: string; createdAt: string; processedAt?: string | null }>
+  earnings?: {
+    total: string
+    taskProfit: string
+    rerentProfit: string
+    day2TaskProfit: string
+    day3TaskProfit: string
+    taskCount: number
+  }
+  transactions?: Array<{ id: string; type: string; amount: string | number; createdAt: string; note?: string | null }>
   setting?: { depositInstructions?: string }
+  walletSummary?: { welcomeBonus: string; approvedDeposits: string; approvedWithdrawals: string }
+  stats?: { totalOrders: number; activeOrders: number; pendingTasks: number; completedTasks: number; totalProfit: string }
 }
 
-export function useCustomerOverview() {
+export function useCustomerOverview(options: { includeFinancials?: boolean } = {}) {
+  const includeFinancials = options.includeFinancials === true
   const [data, setData] = useState<CustomerOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -21,7 +30,7 @@ export function useCustomerOverview() {
     setLoading(true)
     setError("")
     try {
-      const response = await fetch("/api/user/overview", { cache: "no-store" })
+      const response = await fetch(`/api/user/overview${includeFinancials ? "?includeFinancials=1" : ""}`, { cache: "no-store" })
       if (response.status === 401) { window.location.href = "/login"; return }
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || "Unable to load your account.")
@@ -29,7 +38,7 @@ export function useCustomerOverview() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load your account.")
     } finally { setLoading(false) }
-  }, [])
+  }, [includeFinancials])
   useEffect(() => { void reload() }, [reload])
   return { data, loading, error, reload }
 }
@@ -62,7 +71,8 @@ export function customerStatus(value: unknown) {
     RE_RENT_PENDING: "Re-rental in progress", RE_RENTED: "Your order has been re-rented successfully", OFFICIAL_MEMBER: "Member",
     DAY_1: "Getting started", DAY_2: "In progress", PENDING_APPROVAL: "Setup in progress",
     APPROVED: "Confirmed", PENDING: "In progress", PAID: "Paid", ACTIVE: "Active",
-    COMPLETED: "Completed", REJECTED: "Not completed", CANCELLED: "Cancelled", DISABLED: "Unavailable",
+    SUBMITTED: "Awaiting manager review", VERIFIED: "Verified · settlement pending",
+    COMPLETED: "Completed", REJECTED: "Not approved", CANCELLED: "Cancelled", DISABLED: "Unavailable",
   }
   return labels[status] || status.toLowerCase().replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase()) || "—"
 }

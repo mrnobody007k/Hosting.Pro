@@ -7,6 +7,25 @@ import {
   requireSameOrigin,
 } from '@/lib/security'
 
+export async function GET(request: Request) {
+  try {
+    const session = await getSession()
+    if (!session || session.role !== 'MANAGER' || !session.managerId) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    if (cursor && (cursor.length > 100 || !(await prisma.withdrawal.findFirst({ where: { id: cursor, managerId: session.managerId }, select: { id: true } })))) return NextResponse.json({ error: 'Invalid withdrawal page cursor.' }, { status: 400 })
+    const [manager, rows] = await Promise.all([
+      prisma.manager.findUnique({ where: { id: session.managerId }, select: { name: true } }),
+      prisma.withdrawal.findMany({ where: { managerId: session.managerId, status: { in: ['PENDING', 'APPROVED'] }, user: { managerId: session.managerId } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), take: 26, select: { id: true, amount: true, method: true, accountDetails: true, reference: true, status: true, createdAt: true, user: { select: { name: true, email: true } } } }),
+    ])
+    const hasMore = rows.length > 25
+    const withdrawals = rows.slice(0, 25).map((row) => ({ ...row, amount: row.amount.toString() }))
+    return NextResponse.json({ manager, withdrawals, nextCursor: hasMore ? withdrawals.at(-1)?.id || null : null })
+  } catch (error) {
+    console.error('MANAGER_WITHDRAWALS_GET_ERROR', error)
+    return NextResponse.json({ error: 'Unable to load withdrawal requests.' }, { status: 500 })
+  }
+}
+
 export async function POST(req: Request) {
   try {
     requireSameOrigin(req)

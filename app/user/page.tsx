@@ -25,6 +25,7 @@ type Task = {
   status?: string;
   profitRate?: number;
   profitAmount?: number;
+  dayNumber?: number;
   propertyUrl?: string | null;
   assignedAt?: string;
 };
@@ -48,6 +49,8 @@ type Order = {
   };
   tasks?: Task[];
 };
+
+type ActivityEvent = { id: string; kind: string; title: string; detail: string; status: string; amount: string | null; createdAt: string };
 
 type Overview = {
   user?: {
@@ -106,7 +109,7 @@ function statusClass(status?: string) {
   const s = String(status || "").toUpperCase();
 
   if (
-    ["ACTIVE", "APPROVED", "COMPLETED", "PAID", "OFFICIAL_MEMBER"].includes(s)
+    ["ACTIVE", "APPROVED", "COMPLETED", "PAID", "OFFICIAL_MEMBER", "VERIFIED"].includes(s)
   ) {
     return "hp-user-status hp-user-status-success";
   }
@@ -139,6 +142,7 @@ export default function UserDashboard() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -154,16 +158,18 @@ export default function UserDashboard() {
       setLoading(true);
       setError("");
 
-      const [overviewRes, propertiesRes, ordersRes] = await Promise.all([
+      const [overviewRes, propertiesRes, ordersRes, activityRes] = await Promise.all([
         fetch("/api/user/overview", { cache: "no-store" }),
         fetch("/api/user/properties", { cache: "no-store" }),
         fetch("/api/user/orders", { cache: "no-store" }),
+        fetch("/api/user/activity", { cache: "no-store" }),
       ]);
 
       if (
         overviewRes.status === 401 ||
         propertiesRes.status === 401 ||
-        ordersRes.status === 401
+        ordersRes.status === 401 ||
+        activityRes.status === 401
       ) {
         window.location.href = "/login";
         return;
@@ -172,6 +178,7 @@ export default function UserDashboard() {
       const overviewJson = await overviewRes.json();
       const propertiesJson = await propertiesRes.json();
       const ordersJson = await ordersRes.json();
+      const activityJson = activityRes.ok ? await activityRes.json() : { events: [] };
 
       if (!overviewRes.ok) {
         throw new Error(
@@ -188,6 +195,7 @@ export default function UserDashboard() {
       setOrders(
         Array.isArray(ordersJson) ? ordersJson : ordersJson?.orders || []
       );
+      setActivity(Array.isArray(activityJson.events) ? activityJson.events : []);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Unable to load your dashboard."
@@ -271,7 +279,12 @@ export default function UserDashboard() {
       setBusy(`task-${task.id}`);
       setError("");
 
-      const res = await fetch("/api/user/tasks/settle", {
+      const endpoint = task.type === "RE_RENT"
+        ? task.status === "VERIFIED"
+          ? "/api/user/tasks/settle"
+          : "/api/user/tasks"
+        : "/api/user/tasks/daily";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taskId: task.id }),
@@ -308,7 +321,7 @@ export default function UserDashboard() {
             propertyTitle: order.property?.title,
           }))
         )
-        .filter((task) => !["COMPLETED", "REJECTED"].includes(String(task.status))),
+        .filter((task) => task.status !== "COMPLETED"),
     [orders]
   );
 
@@ -383,7 +396,7 @@ export default function UserDashboard() {
           <h2>{tier}</h2>
           <p>
             Your account progress is managed automatically as you complete the
-            required activities.
+            activities for manager verification before task profit is credited.
           </p>
         </div>
 
@@ -396,7 +409,7 @@ export default function UserDashboard() {
       <section className="hp-user-kpi-grid">
         <div className="hp-user-kpi">
           <span>Available Balance</span>
-          <strong>{money(wallet.balance)}</strong>
+          <strong>{money(overview?.availableBalance ?? wallet.balance)}</strong>
           <small>Ready balance</small>
         </div>
 
@@ -618,6 +631,7 @@ export default function UserDashboard() {
                   <div className="hp-task-main">
                     <strong>{task.title}</strong>
                     <span>{task.propertyTitle || "Housing.pro task"}</span>
+                    <small>{task.status === "SUBMITTED" ? "Awaiting manager verification · no profit credited" : task.status === "VERIFIED" ? "Verified · settlement delay in progress" : task.status === "REJECTED" ? "Not approved · no profit credited" : task.type === "RE_RENT" ? task.dayNumber === 0 ? "Existing Re-Rent request · action required" : "Assigned by your manager · action required" : "Available · submit for manager verification"}</small>
                     {task.description && <small>{task.description}</small>}
                   </div>
 
@@ -628,16 +642,37 @@ export default function UserDashboard() {
 
                     <button
                       className="hp-user-btn hp-user-btn-primary"
-                      disabled={busy === `task-${task.id}`}
+                      disabled={busy === `task-${task.id}` || task.status === "SUBMITTED" || task.status === "REJECTED"}
                       onClick={() => settleTask(task)}
                     >
-                      {busy === `task-${task.id}` ? "Processing..." : "Complete"}
+                      {busy === `task-${task.id}` ? "Processing..." : task.status === "SUBMITTED" ? "Awaiting review" : task.status === "VERIFIED" ? "Check settlement" : task.status === "REJECTED" ? "Not approved" : task.type === "RE_RENT" ? task.dayNumber === 0 ? "Submit existing request" : "Submit assigned task" : "Submit for review"}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </section>
+      </div>
+
+      <div className="hp-user-two-col">
+        <section className="hp-user-panel">
+          <div className="hp-user-panel-head">
+            <div><div className="hp-user-section-kicker">RECENT UPDATES</div><h2>Account activity</h2><p>Recent changes from your bookings, tasks, and wallet.</p></div>
+            <Link href="/user/activity" className="hp-user-text-link">View activity →</Link>
+          </div>
+          {activity.filter((event) => event.kind !== "NOTIFICATION").slice(0, 5).length === 0 ? <div className="hp-user-empty hp-user-empty-small"><p>Account updates will appear here as activity is recorded.</p></div> : <div className="hp-task-list">
+            {activity.filter((event) => event.kind !== "NOTIFICATION").slice(0, 5).map((event) => <div className="hp-task-row" key={event.id}><div className="hp-task-icon">{event.kind === "ORDER" ? "⌂" : event.kind === "TASK" ? "✓" : "↔"}</div><div className="hp-task-main"><strong>{event.title}</strong><span>{event.detail}</span><small>{date(event.createdAt)}</small></div><div className="hp-task-side"><span className={statusClass(event.status)}>{customerStatus(event.status)}</span></div></div>)}
+          </div>}
+        </section>
+        <section className="hp-user-panel">
+          <div className="hp-user-panel-head">
+            <div><div className="hp-user-section-kicker">ACCOUNT MESSAGES</div><h2>Notifications</h2><p>Recent notices and account messages.</p></div>
+            <Link href="/user/notifications" className="hp-user-text-link">Open inbox →</Link>
+          </div>
+          {activity.filter((event) => event.kind === "NOTIFICATION").slice(0, 5).length === 0 ? <div className="hp-user-empty hp-user-empty-small"><p>You have no recent notifications.</p></div> : <div className="hp-task-list">
+            {activity.filter((event) => event.kind === "NOTIFICATION").slice(0, 5).map((event) => <div className="hp-task-row" key={event.id}><div className="hp-task-icon">{event.status === "UNREAD" ? "•" : "✓"}</div><div className="hp-task-main"><strong>{event.title}</strong><span>{event.detail}</span><small>{date(event.createdAt)}</small></div><div className="hp-task-side"><span className={statusClass(event.status)}>{customerStatus(event.status)}</span></div></div>)}
+          </div>}
         </section>
       </div>
 

@@ -15,11 +15,13 @@ type Client = {
   status: string;
   wallet?: { balance: number | string; reservedBalance: number | string } | null;
 };
+type ClientDetail = { client: Client | null; manager: { name: string } | null; orders?: Array<{ id: string; orderCode: string; amount: string; status: string; paymentStatus: string; createdAt: string; property?: { title: string } }>; tasks?: Array<{ id: string; title: string; dayNumber: number; status: string; profitAmount: string }>; deposits?: Array<{ id: string; amount: string; status: string; createdAt: string }>; withdrawals?: Array<{ id: string; amount: string; status: string; createdAt: string }>; notifications?: Array<{ id: string; title: string; isRead: boolean; createdAt: string }> };
 
 export default function ClientDetailPage() {
   const p = useParams<{ id: string }>();
-  const [data, setData] = useState<{ client: Client | null; manager: { name: string } | null }>({ client: null, manager: null });
+  const [data, setData] = useState<ClientDetail>({ client: null, manager: null });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
@@ -27,13 +29,13 @@ export default function ClientDetailPage() {
     async function load() {
       try {
         setLoading(true);
-        const r = await fetch("/api/manager/overview", { cache: "no-store" });
+        const r = await fetch(`/api/manager/clients/${encodeURIComponent(p.id)}`, { cache: "no-store" });
         if (r.status === 401) { window.location.href = "/manager-login"; return; }
         const j = await r.json();
-        const client = (j?.clients || j?.users || []).find((x: any) => x.id === p.id);
-        setData({ client: client || null, manager: { name: j?.manager?.name || "Manager" } });
-      } catch {
-        setData({ client: null, manager: { name: "Manager" } });
+        if (!r.ok) throw new Error(j.error || "Unable to load this client.");
+        setData(j);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Unable to load this client.");
       } finally {
         setLoading(false);
       }
@@ -68,7 +70,7 @@ export default function ClientDetailPage() {
   }
 
   if (!c) {
-    return <ManagerShell managerName={data.manager?.name || "Manager"}><div className="cd-empty">This client was not found in the manager-scoped response.</div></ManagerShell>;
+    return <ManagerShell managerName={data.manager?.name || "Manager"}><div className="cd-empty" role={error ? "alert" : undefined}>{error || "This client was not found under your manager account."}</div></ManagerShell>;
   }
 
   const syncAlertStyle: React.CSSProperties = {
@@ -131,6 +133,9 @@ export default function ClientDetailPage() {
           <div key={String(a)}><small>{a}</small><strong>{b ?? "—"}</strong></div>
         ))}
       </section>
+      <div className="cd-sections">
+        {[["Recent orders", data.orders?.map((row) => `${row.orderCode} · ${row.property?.title || "Property"} · ${row.status} · ₹${row.amount}`)], ["Recent tasks", data.tasks?.map((row) => `${row.title} · Day ${row.dayNumber} · ${row.status}`)], ["Deposits", data.deposits?.map((row) => `₹${row.amount} · ${row.status}`)], ["Withdrawals", data.withdrawals?.map((row) => `₹${row.amount} · ${row.status}`)], ["Notifications", data.notifications?.map((row) => `${row.title} · ${row.isRead ? "Read" : "Unread"}`)]].map(([title, rows]) => <section key={String(title)}><h2>{title}</h2>{Array.isArray(rows) && rows.length ? rows.map((row, index) => <p key={`${title}-${index}`}>{row}</p>) : <p>No records.</p>}</section>)}
+      </div>
 
       <style jsx global>{`
         .cd-head {
@@ -155,6 +160,7 @@ export default function ClientDetailPage() {
           gap: 14px;
         }
         .cd-grid > div { background: #fff; border: 1px solid #e5e7eb; border-radius: 15px; padding: 18px; }
+        .cd-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}.cd-sections section{min-width:0;background:#fff;border:1px solid #e5e7eb;border-radius:15px;padding:18px}.cd-sections h2{margin:0 0 10px;font-size:15px}.cd-sections p{padding:9px 0;margin:0;border-top:1px solid #eef2f7;color:#475467;font-size:11px;overflow-wrap:anywhere}.cd-sections p:first-of-type{border-top:0}@media(max-width:650px){.cd-sections{grid-template-columns:1fr}}
         .cd-grid small, .cd-grid strong { display: block; }
         .cd-grid small { font-size: 10px; color: #64748b; }
         .cd-grid strong { margin-top: 7px; font-size: 14px; }

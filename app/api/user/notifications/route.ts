@@ -19,7 +19,7 @@ function customerCopy(value: string) {
     .replace(/administrator|admin/gi, 'Housing.pro')
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getSession()
     if (!session || session.role !== 'USER' || !session.managerId) {
@@ -34,19 +34,28 @@ export async function GET() {
       return NextResponse.json({ error: 'Your account is not available.' }, { status: 403 })
     }
 
-    const notifications = await prisma.notification.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      select: { id: true, type: true, title: true, message: true, isRead: true, createdAt: true },
-    })
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    if (cursor && (cursor.length > 100 || !(await prisma.notification.findFirst({ where: { id: cursor, userId: user.id }, select: { id: true } })))) {
+      return NextResponse.json({ error: 'Invalid notification page cursor.' }, { status: 400 })
+    }
+    const [notifications, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId: user.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: 50,
+        select: { id: true, type: true, title: true, message: true, isRead: true, createdAt: true },
+      }),
+      prisma.notification.count({ where: { userId: user.id, isRead: false } }),
+    ])
     return NextResponse.json({
       notifications: notifications.map((notification) => ({
         ...notification,
         title: customerCopy(notification.title),
         message: customerCopy(notification.message),
       })),
-      unreadCount: notifications.filter((notification) => !notification.isRead).length,
+      unreadCount,
+      nextCursor: notifications.length === 50 ? notifications[notifications.length - 1].id : null,
     })
   } catch (error) {
     console.error('USER_NOTIFICATIONS_GET_ERROR', error)

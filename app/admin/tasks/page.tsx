@@ -63,7 +63,8 @@ const taskTypeLabels: Record<string, string> = {
 const taskStatusLabels: Record<string, string> = {
   PENDING: "Pending",
   IN_PROGRESS: "In Progress",
-  SUBMITTED: "Submitted",
+  SUBMITTED: "Awaiting Manager Review",
+  VERIFIED: "Verified · Awaiting Settlement",
   COMPLETED: "Completed",
   REJECTED: "Rejected",
 };
@@ -95,7 +96,7 @@ function statusBadge(status: string) {
   if (["REJECTED", "CANCELLED"].includes(status)) {
     return { background: "#fee2e2", color: "#b91c1c" };
   }
-  if (["SUBMITTED", "IN_PROGRESS"].includes(status)) {
+  if (["SUBMITTED", "VERIFIED", "IN_PROGRESS"].includes(status)) {
     return { background: "#e0f2fe", color: "#0369a1" };
   }
   if (["PENDING"].includes(status)) {
@@ -179,6 +180,7 @@ export default function TasksPage() {
       completed: tasks.filter((t) => t.status === "COMPLETED").length,
       pending: tasks.filter((t) => t.status === "PENDING" || t.status === "IN_PROGRESS").length,
       submitted: tasks.filter((t) => t.status === "SUBMITTED").length,
+      verified: tasks.filter((t) => t.status === "VERIFIED").length,
       totalProfit: tasks.reduce((sum, t) => sum.plus(String(t.profitAmount)), new Decimal(0)),
     };
   }, [tasks]);
@@ -260,6 +262,11 @@ export default function TasksPage() {
           <div className="admin-card">
             <div style={{ color: "#64748b", fontSize: 13 }}>Submitted</div>
             <div style={{ fontSize: 28, fontWeight: 900, marginTop: 8, color: "#0369a1" }}>{stats.submitted}</div>
+          </div>
+
+          <div className="admin-card">
+            <div style={{ color: "#64748b", fontSize: 13 }}>Verified / Awaiting Settlement</div>
+            <div style={{ fontSize: 28, fontWeight: 900, marginTop: 8, color: "#1e40af" }}>{stats.verified}</div>
           </div>
 
           <div className="admin-card">

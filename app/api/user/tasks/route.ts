@@ -5,7 +5,45 @@ import {
   readJson,
   requireSameOrigin,
   handleRequestSecurityError,
+  isValidHttpsUrl,
 } from '@/lib/security'
+
+const LEGACY_DIRECT_RERENT_TITLE = 'Re-Rent Request'
+
+export async function GET(request: Request) {
+  try {
+    const session = await getSession()
+    if (!session || session.role !== 'USER' || !session.managerId) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+    const user = await prisma.user.findFirst({
+      where: { id: session.sub, managerId: session.managerId, status: 'ACTIVE', signupStatus: 'APPROVED', manager: { status: 'ACTIVE' } },
+      select: { id: true },
+    })
+    if (!user) return NextResponse.json({ error: 'Your account is not available.' }, { status: 403 })
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    if (cursor && (cursor.length > 100 || !(await prisma.task.findFirst({ where: { id: cursor, userId: user.id, managerId: session.managerId, type: 'RE_RENT' }, select: { id: true } })))) {
+      return NextResponse.json({ error: 'Invalid task page cursor.' }, { status: 400 })
+    }
+    const tasks = await prisma.task.findMany({
+      where: { userId: user.id, managerId: session.managerId, type: 'RE_RENT' },
+      orderBy: [{ assignedAt: 'desc' }, { id: 'desc' }],
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: 50,
+      select: {
+        id: true, type: true, title: true, description: true, propertyUrl: true, dayNumber: true,
+        profitRate: true, profitAmount: true, status: true, assignedAt: true, startedAt: true,
+        submittedAt: true, completedAt: true, createdAt: true,
+        order: { select: { id: true, orderCode: true, status: true, rerentedAt: true, property: { select: { id: true, title: true, location: true, imageUrl: true } } } },
+      },
+    })
+    return NextResponse.json({
+      tasks: tasks.map((task) => ({ ...task, propertyUrl: task.propertyUrl && isValidHttpsUrl(task.propertyUrl) ? task.propertyUrl : null, profitRate: task.profitRate.toString(), profitAmount: task.profitAmount.toString() })),
+      nextCursor: tasks.length === 50 ? tasks[tasks.length - 1].id : null,
+    })
+  } catch (error) {
+    console.error('USER_RERENT_TASKS_GET_ERROR', error)
+    return NextResponse.json({ error: 'Unable to load your assigned activities.' }, { status: 500 })
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -115,6 +153,19 @@ export async function POST(req: Request) {
       )
     }
 
+    const managerAssignedTask = task.dayNumber === 1
+    const legacyExistingRequest = task.dayNumber === 0 && task.title === LEGACY_DIRECT_RERENT_TITLE
+    if (
+      (!managerAssignedTask && !legacyExistingRequest) ||
+      task.order.status !== 'RE_RENT_PENDING' ||
+      !task.order.rerentRequestedAt
+    ) {
+      return NextResponse.json(
+        { error: 'New Re-Rent activities must be assigned by your manager.' },
+        { status: 409 },
+      )
+    }
+
     if (
       task.user.status !== 'ACTIVE' ||
       task.user.signupStatus !== 'APPROVED' ||
@@ -131,7 +182,8 @@ export async function POST(req: Request) {
 
     if (
       task.status !== 'PENDING' &&
-      task.status !== 'IN_PROGRESS'
+      task.status !== 'IN_PROGRESS' &&
+      task.status !== 'REJECTED'
     ) {
       return NextResponse.json(
         {
@@ -207,6 +259,16 @@ export async function POST(req: Request) {
             )
           }
 
+          const managerAssignedTask = current.dayNumber === 1
+          const legacyExistingRequest = current.dayNumber === 0 && current.title === LEGACY_DIRECT_RERENT_TITLE
+          if (
+            (!managerAssignedTask && !legacyExistingRequest) ||
+            current.order.status !== 'RE_RENT_PENDING' ||
+            !current.order.rerentRequestedAt
+          ) {
+            throw new Error('MANAGER_ASSIGNMENT_REQUIRED')
+          }
+
           if (
             current.user.status !== 'ACTIVE' ||
             current.user.signupStatus !== 'APPROVED' ||
@@ -221,24 +283,17 @@ export async function POST(req: Request) {
             current.status !==
               'PENDING' &&
             current.status !==
-              'IN_PROGRESS'
+              'IN_PROGRESS' &&
+            current.status !==
+              'REJECTED'
           ) {
             throw new Error(
               'TASK_ALREADY_SUBMITTED',
             )
           }
 
-          /*
-           * Order must still be active before the
-           * Re-Rent request can move it to pending.
-           */
-          if (
-            current.order.status !==
-            'ACTIVE'
-          ) {
-            throw new Error(
-              'ORDER_NOT_ACTIVE',
-            )
+          if (current.order.status !== 'RE_RENT_PENDING') {
+            throw new Error('ORDER_NOT_ACTIVE')
           }
 
           /*
@@ -256,8 +311,9 @@ export async function POST(req: Request) {
                   session.managerId,
                 status: {
                   in: [
-                    'PENDING',
+                  'PENDING',
                     'IN_PROGRESS',
+                    'REJECTED',
                   ],
                 },
               },
@@ -286,7 +342,8 @@ export async function POST(req: Request) {
                 userId: session.sub,
                 managerId:
                   session.managerId,
-                status: 'ACTIVE',
+                status: 'RE_RENT_PENDING',
+                rerentRequestedAt: { not: null },
               },
               data: {
                 status:
@@ -308,10 +365,9 @@ export async function POST(req: Request) {
             data: {
               userId: session.sub,
               type: 'TASK',
-              title:
-                'Re-Rent request submitted',
+              title: current.status === 'REJECTED' ? 'Re-Rent activity retry submitted' : current.dayNumber === 0 ? 'Existing Re-Rent request submitted' : 'Re-Rent activity submitted',
               message:
-                `Your Re-Rent request for order ${current.order.orderCode} has been received. Processing will complete automatically.`,
+                `${current.dayNumber === 0 ? 'Your existing Re-Rent request' : 'Your manager-assigned Re-Rent activity'} for order ${current.order.orderCode} was submitted. No profit is credited unless the manager approves it. Settlement will complete automatically after the configured processing delay.`,
             },
           })
 
@@ -342,6 +398,7 @@ export async function POST(req: Request) {
             id: current.id,
             status: 'SUBMITTED' as const,
             submittedAt,
+            legacy: current.dayNumber === 0,
           }
         },
         {
@@ -365,7 +422,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       message:
-        'Re-Rent request submitted successfully.',
+        updated.legacy
+          ? 'Your existing Re-Rent request was submitted and will settle after the configured processing delay.'
+          : 'Manager-assigned Re-Rent activity submitted successfully.',
       task: updated,
       processingSeconds:
         Number.isFinite(
@@ -451,6 +510,13 @@ export async function POST(req: Request) {
           error:
             'This order is not currently available for Re-Rent.',
         },
+        { status: 409 },
+      )
+    }
+
+    if (error instanceof Error && error.message === 'MANAGER_ASSIGNMENT_REQUIRED') {
+      return NextResponse.json(
+        { error: 'New Re-Rent activities must be assigned by your manager.' },
         { status: 409 },
       )
     }

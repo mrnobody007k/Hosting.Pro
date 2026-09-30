@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Decimal } from "decimal.js";
 import AdminShell from "../AdminShell";
 
 type Activity = {
@@ -11,7 +12,7 @@ type Activity = {
   action: string;
   targetType: string | null;
   targetId: string | null;
-  amount: number | null;
+  amount: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   manager: {
@@ -26,12 +27,14 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function money(value: number | null) {
-  if (value === null || Number.isNaN(value)) return "—";
-  return `₹${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function money(value: string | null) {
+  if (value === null) return "—";
+  try {
+    const amount = new Decimal(value);
+    return amount.isFinite() ? `₹${amount.toFixed(2)}` : "—";
+  } catch {
+    return "—";
+  }
 }
 
 function actorClass(type: string) {
@@ -49,17 +52,20 @@ export default function AdminActivityPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Activity | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  async function loadActivity() {
+  async function loadActivity(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
       const params = new URLSearchParams();
       if (search.trim()) params.set("search", search.trim());
       if (actorType !== "ALL") params.set("actorType", actorType);
       if (managerId !== "ALL") params.set("managerId", managerId);
-      params.set("limit", "500");
+      params.set("limit", "100");
+      if (cursor) params.set("cursor", cursor);
 
       const response = await fetch(
         `/api/admin/activity?${params.toString()}`,
@@ -75,7 +81,8 @@ export default function AdminActivityPage() {
       }
 
       const rows: Activity[] = data.activities || [];
-      setActivities(rows);
+      setActivities((current) => append ? [...current, ...rows] : rows);
+      setNextCursor(data.nextCursor || null);
 
       const uniqueManagers = new Map<string, Activity["manager"]>();
       rows.forEach((row) => {
@@ -93,6 +100,7 @@ export default function AdminActivityPage() {
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
@@ -125,7 +133,7 @@ export default function AdminActivityPage() {
 
           <button
             className="activity-refresh"
-            onClick={loadActivity}
+            onClick={() => loadActivity()}
             disabled={loading}
           >
             {loading ? "Refreshing..." : "Refresh Activity"}
@@ -190,7 +198,7 @@ export default function AdminActivityPage() {
 
             <button
               className="activity-search"
-              onClick={loadActivity}
+              onClick={() => loadActivity()}
             >
               Search
             </button>
@@ -201,7 +209,6 @@ export default function AdminActivityPage() {
               {error}
             </div>
           )}
-
           {loading ? (
             <div className="activity-state">
               Loading audit activity...
@@ -290,6 +297,7 @@ export default function AdminActivityPage() {
               </table>
             </div>
           )}
+          {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => loadActivity(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more activity"}</button></div>}
         </div>
 
         {selected && (

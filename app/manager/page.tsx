@@ -74,6 +74,7 @@ type Overview = {
   };
   clients?: Client[];
   pendingSignups?: Signup[];
+  recentActivity?: Array<{ id: string; action: string; targetType: string | null; amount: string | null; createdAt: string }>;
 };
 
 function money(value: unknown) {
@@ -183,7 +184,7 @@ export default function ManagerDashboard() {
     }
   }
 
-  async function orderAction(orderId: string, action: "VERIFY_PAYMENT" | "CANCEL") {
+  async function orderAction(orderId: string, action: "CANCEL") {
     try {
       setBusy(`order-${orderId}`);
       setError("");
@@ -300,7 +301,7 @@ export default function ManagerDashboard() {
   return (
     <ManagerShell
       managerName={managerName}
-      notificationCount={signups.length}
+      notificationCount={stats.pendingSignups ?? signups.length}
     >
       <div className="hp-page-head">
         <div>
@@ -624,13 +625,7 @@ export default function ManagerDashboard() {
                   <td>
                     <div className="hp-row-actions hp-row-actions-tight">
                       {order.status === "PAYMENT_SUBMITTED" && (
-                        <button
-                          className="hp-btn hp-btn-success"
-                          disabled={busy === `order-${order.id}`}
-                          onClick={() => orderAction(order.id, "VERIFY_PAYMENT")}
-                        >
-                          Verify
-                        </button>
+                        <Link className="hp-btn hp-btn-success" href="/manager/orders">Review payment</Link>
                       )}
 
                       {order.status === "ACTIVE" && (
@@ -654,7 +649,7 @@ export default function ManagerDashboard() {
                       )}
 
                       <Link
-                        href={`/manager/orders/${order.id}`}
+                        href="/manager/orders"
                         className="hp-icon-link"
                       >
                         View
@@ -673,6 +668,11 @@ export default function ManagerDashboard() {
             </div>
           )}
         </div>
+      </section>
+
+      <section className="hp-panel">
+        <div className="hp-panel-head"><div><div className="hp-section-kicker">AUDIT TRAIL</div><h2>Recent Activity</h2><p>Latest recorded actions in your manager workspace.</p></div><Link href="/manager/activity" className="hp-text-link">View activity →</Link></div>
+        {!data?.recentActivity?.length ? <div className="hp-empty hp-empty-small">No manager activity has been recorded yet.</div> : <div className="hp-table-wrap"><table className="hp-table"><thead><tr><th>Action</th><th>Record</th><th>Amount</th><th>Time</th></tr></thead><tbody>{data.recentActivity.map((event) => <tr key={event.id}><td>{event.action.replaceAll("_", " ").toLowerCase()}</td><td>{event.targetType || "—"}</td><td>{event.amount === null ? "—" : money(event.amount)}</td><td>{date(event.createdAt)}</td></tr>)}</tbody></table></div>}
       </section>
 
       <style jsx global>{`

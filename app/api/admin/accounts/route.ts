@@ -7,7 +7,7 @@ import {
   readJson,
   requireSameOrigin,
 } from '@/lib/security'
-import { AdminPermission, isSuperAdmin, hasPermission } from '@/lib/admin-permissions'
+import { AdminPermission, isSuperAdmin } from '@/lib/admin-permissions'
 
 export async function GET() {
   try {
@@ -82,14 +82,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Cannot create additional Super Admin accounts.' }, { status: 400 })
     }
 
+    const validPermissions = permissions.filter((permission) =>
+      Object.values(AdminPermission).includes(permission as typeof AdminPermission[keyof typeof AdminPermission]),
+    )
+    if (validPermissions.length !== permissions.length) {
+      return NextResponse.json({ error: 'Invalid permissions.' }, { status: 400 })
+    }
+
     const passwordHash = await bcrypt.hash(password, 12)
 
     const result = await prisma.$transaction(async (tx) => {
-      const existing = await tx.adminUser.findUnique({ where: { email }, select: { id: true } })
-      if (existing) throw new Error('DUPLICATE')
+      const [adminExists, managerExists, userExists] = await Promise.all([
+        tx.adminUser.findUnique({ where: { email }, select: { id: true } }),
+        tx.manager.findUnique({ where: { email }, select: { id: true } }),
+        tx.user.findUnique({ where: { email }, select: { id: true } }),
+      ])
+      if (adminExists || managerExists || userExists) throw new Error('DUPLICATE')
 
       const admin = await tx.adminUser.create({
-        data: { name, email, passwordHash, adminType: adminType as any, permissions },
+        data: { name, email, passwordHash, adminType: adminType as any, permissions: validPermissions },
         select: { id: true, name: true, email: true, adminType: true, permissions: true, createdAt: true },
       })
 
@@ -100,7 +111,7 @@ export async function POST(req: Request) {
           action: 'ADMIN_ACCOUNT_CREATED',
           targetType: 'ADMIN_USER',
           targetId: admin.id,
-          metadata: { adminType, permissions },
+          metadata: { adminType, permissions: validPermissions },
         },
       })
 

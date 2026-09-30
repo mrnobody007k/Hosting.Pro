@@ -7,7 +7,7 @@ import {
   handleRequestSecurityError,
 } from '@/lib/security'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getSession()
 
@@ -22,18 +22,38 @@ export async function GET() {
       )
     }
 
-    const orders = await prisma.order.findMany({
+    const params = new URL(request.url).searchParams
+    const query = (params.get('q') || '').trim().slice(0, 100)
+    const status = (params.get('status') || 'ALL').toUpperCase()
+    const cursor = params.get('cursor')
+    const allowedStatuses = ['ALL', 'PAYMENT_PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'ACTIVE', 'RE_RENT_PENDING', 'RE_RENTED', 'COMPLETED', 'CANCELLED']
+    if (!allowedStatuses.includes(status)) return NextResponse.json({ error: 'Invalid order filter.' }, { status: 400 })
+    if (cursor && (cursor.length > 100 || !(await prisma.order.findFirst({ where: { id: cursor, managerId: session.managerId }, select: { id: true } })))) {
+      return NextResponse.json({ error: 'Invalid order page cursor.' }, { status: 400 })
+    }
+
+    const [manager, orders] = await Promise.all([prisma.manager.findUnique({ where: { id: session.managerId }, select: { name: true } }), prisma.order.findMany({
       where: {
         managerId: session.managerId,
+        user: { managerId: session.managerId },
+        ...(status !== 'ALL' ? { status: status as 'PAYMENT_PENDING' | 'PAYMENT_SUBMITTED' | 'PAYMENT_VERIFIED' | 'ACTIVE' | 'RE_RENT_PENDING' | 'RE_RENTED' | 'COMPLETED' | 'CANCELLED' } : {}),
+        ...(query ? { OR: [
+          { orderCode: { contains: query, mode: 'insensitive' as const } },
+          { user: { name: { contains: query, mode: 'insensitive' as const } } },
+          { user: { email: { contains: query, mode: 'insensitive' as const } } },
+          { property: { title: { contains: query, mode: 'insensitive' as const } } },
+        ] } : {}),
       },
-      include: {
+      select: {
+        id: true, orderCode: true, amount: true, storehousePrice: true, profit: true, profitRate: true, status: true,
+        paymentStatus: true, paymentReference: true, paymentProofUrl: true, paymentSubmittedAt: true,
+        paymentVerifiedAt: true, createdAt: true, updatedAt: true,
         user: {
           select: {
             id: true,
             name: true,
             email: true,
             phone: true,
-            managerId: true,
           },
         },
         property: {
@@ -48,15 +68,21 @@ export async function GET() {
           orderBy: {
             createdAt: 'desc',
           },
+          take: 5,
+          select: { id: true, type: true, title: true, dayNumber: true, status: true, profitRate: true, profitAmount: true, assignedAt: true, submittedAt: true, completedAt: true },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    })
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: 26,
+    })])
+
+    const hasMore = orders.length > 25
+    const page = orders.slice(0, 25)
 
     return NextResponse.json({
-      orders: orders.map((order) => ({
+      manager,
+      orders: page.map((order) => ({
         ...order,
         amount: order.amount.toString(),
         storehousePrice: order.storehousePrice.toString(),
@@ -74,6 +100,7 @@ export async function GET() {
           profitAmount: task.profitAmount.toString(),
         })),
       })),
+      nextCursor: hasMore ? page.at(-1)?.id || null : null,
     })
   } catch (error) {
     console.error('MANAGER_ORDERS_GET_ERROR', error)
@@ -127,7 +154,7 @@ export async function POST(req: Request) {
     }
 
     if (
-      !['VERIFY_PAYMENT', 'CANCEL'].includes(action)
+      !['VERIFY_PAYMENT', 'REJECT_PAYMENT', 'CANCEL'].includes(action)
     ) {
       return NextResponse.json(
         { error: 'Invalid order action.' },
@@ -179,6 +206,21 @@ export async function POST(req: Request) {
 
         if (order.user.status !== 'ACTIVE' || order.user.signupStatus !== 'APPROVED') {
           throw new Error('USER_INACTIVE')
+        }
+
+        if (action === 'REJECT_PAYMENT') {
+          if (order.status !== 'PAYMENT_SUBMITTED' || order.paymentStatus !== 'PENDING' || (!order.paymentReference?.trim() && !order.paymentProofUrl?.trim())) {
+            throw new Error('PAYMENT_NOT_PENDING')
+          }
+          const cancelledAt = new Date()
+          const rejected = await tx.order.updateMany({
+            where: { id: order.id, managerId: session.managerId!, status: 'PAYMENT_SUBMITTED', paymentStatus: 'PENDING' },
+            data: { status: 'CANCELLED', paymentStatus: 'REJECTED', cancelledAt },
+          })
+          if (rejected.count !== 1) throw new Error('ORDER_ALREADY_PROCESSED')
+          await tx.notification.create({ data: { userId: order.userId, type: 'WARNING', title: 'Payment not verified', message: `Payment for order ${order.orderCode} could not be verified and the booking was cancelled. Review your booking history for details.` } })
+          await tx.auditLog.create({ data: { actorType: 'MANAGER', actorId: session.sub, managerId: session.managerId!, action: 'ORDER_PAYMENT_REJECTED', targetType: 'ORDER', targetId: order.id, amount: order.amount, metadata: { orderCode: order.orderCode, userId: order.userId, previousStatus: order.status, paymentReference: order.paymentReference || null } } })
+          return { type: 'REJECT_PAYMENT' as const, order: { ...order, status: 'CANCELLED' as const, paymentStatus: 'REJECTED' as const, cancelledAt } }
         }
 
         if (action === 'CANCEL') {
@@ -341,9 +383,9 @@ export async function POST(req: Request) {
       },
     )
 
-    if (result.type === 'CANCEL') {
+    if (result.type === 'CANCEL' || result.type === 'REJECT_PAYMENT') {
       return NextResponse.json({
-        message: 'Order cancelled successfully.',
+        message: result.type === 'REJECT_PAYMENT' ? 'Payment rejected and order cancelled.' : 'Order cancelled successfully.',
         order: {
           ...result.order,
           amount: result.order.amount.toString(),

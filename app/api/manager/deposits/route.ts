@@ -15,6 +15,25 @@ function validAmount(value: unknown) {
   } catch { return null }
 }
 
+export async function GET(request: Request) {
+  try {
+    const session = await getSession()
+    if (!session || session.role !== 'MANAGER' || !session.managerId) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    if (cursor && (cursor.length > 100 || !(await prisma.deposit.findFirst({ where: { id: cursor, managerId: session.managerId }, select: { id: true } })))) return NextResponse.json({ error: 'Invalid deposit page cursor.' }, { status: 400 })
+    const [manager, rows] = await Promise.all([
+      prisma.manager.findUnique({ where: { id: session.managerId }, select: { name: true } }),
+      prisma.deposit.findMany({ where: { managerId: session.managerId, status: 'PENDING', user: { managerId: session.managerId } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), take: 26, select: { id: true, amount: true, reference: true, proofUrl: true, status: true, createdAt: true, user: { select: { name: true, email: true } } } }),
+    ])
+    const hasMore = rows.length > 25
+    const deposits = rows.slice(0, 25).map((row) => ({ ...row, amount: row.amount.toString() }))
+    return NextResponse.json({ manager, deposits, nextCursor: hasMore ? deposits.at(-1)?.id || null : null })
+  } catch (error) {
+    console.error('MANAGER_DEPOSITS_GET_ERROR', error)
+    return NextResponse.json({ error: 'Unable to load deposit requests.' }, { status: 500 })
+  }
+}
+
 export async function POST(req: Request) {
   try {
     requireSameOrigin(req)

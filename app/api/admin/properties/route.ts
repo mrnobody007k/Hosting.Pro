@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { AdminPermission } from '@/lib/admin-permissions'
-import { handleRequestSecurityError, readJson, requireSameOrigin } from '@/lib/security'
+import { handleRequestSecurityError, isValidHttpsUrl, readJson, requireSameOrigin } from '@/lib/security'
 
 function normalizeStatus(value: unknown) {
   const status = String(value || 'ACTIVE').trim().toUpperCase()
@@ -19,14 +19,34 @@ function parsePropertyPrice(value: unknown) {
   } catch { return null }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const auth = await requireAdminAuth(AdminPermission.MANAGE_PROPERTIES)
     if (!auth.ok) return auth.response
     const session = auth.session
 
+    const params = new URL(request.url).searchParams
+    const requestedLimit = Number(params.get('limit') || '100')
+    const limit = Math.min(Math.max(Number.isInteger(requestedLimit) ? requestedLimit : 100, 1), 200)
+    const cursor = params.get('cursor') || undefined
+    const search = (params.get('search') || '').trim()
+    const status = params.get('status') || 'ALL'
+    if ((cursor && cursor.length > 100) || search.length > 200 || (status !== 'ALL' && !['ACTIVE', 'INACTIVE', 'SOLD_OUT'].includes(status))) return NextResponse.json({ error: 'Invalid property filter or pagination cursor.' }, { status: 400 })
+    const where: Record<string, unknown> = {}
+    if (status !== 'ALL') where.status = status
+    if (search) where.OR = [
+      { title: { contains: search, mode: 'insensitive' } },
+      { location: { contains: search, mode: 'insensitive' } },
+      { manager: { name: { contains: search, mode: 'insensitive' } } },
+      { manager: { referralCode: { contains: search, mode: 'insensitive' } } },
+    ]
+
     const properties = await prisma.property.findMany({
-      orderBy: { createdAt: 'desc' },
+      where,
+      take: limit + 1,
+      cursor: cursor ? { id: cursor } : undefined,
+      skip: cursor ? 1 : undefined,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       select: {
         id: true, title: true, location: true, description: true, price: true,
         imageUrl: true, propertyUrl: true, status: true, managerId: true,
@@ -36,8 +56,24 @@ export async function GET() {
       },
     })
 
+    const [statusCounts, totalOrders] = await Promise.all([
+      prisma.property.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.order.count(),
+    ])
+
+    const hasMore = properties.length > limit
+    if (hasMore) properties.pop()
+
     return NextResponse.json({
       properties: properties.map((property) => ({ ...property, price: property.price.toString() })),
+      nextCursor: hasMore ? properties[properties.length - 1]?.id ?? null : null,
+      stats: {
+        total: statusCounts.reduce((sum, row) => sum + row._count._all, 0),
+        active: statusCounts.find((row) => row.status === 'ACTIVE')?._count._all ?? 0,
+        inactive: statusCounts.find((row) => row.status === 'INACTIVE')?._count._all ?? 0,
+        soldOut: statusCounts.find((row) => row.status === 'SOLD_OUT')?._count._all ?? 0,
+        totalOrders,
+      },
     })
   } catch (error) {
     console.error('ADMIN_PROPERTIES_GET_ERROR', error)
@@ -68,6 +104,9 @@ export async function POST(req: Request) {
 
     if (!title || title.length > 200 || !price || !status) {
       return NextResponse.json({ error: 'Title, valid price and valid status are required.' }, { status: 400 })
+    }
+    if ((imageUrl && !isValidHttpsUrl(imageUrl)) || (propertyUrl && !isValidHttpsUrl(propertyUrl))) {
+      return NextResponse.json({ error: 'Image and property links must use valid HTTPS URLs.' }, { status: 400 })
     }
 
     if (managerId) {
@@ -125,8 +164,16 @@ export async function PATCH(req: Request) {
     }
     if (body.location !== undefined) data.location = String(body.location || '').trim().slice(0, 200) || null
     if (body.description !== undefined) data.description = String(body.description || '').trim().slice(0, 4000) || null
-    if (body.imageUrl !== undefined) data.imageUrl = String(body.imageUrl || '').trim().slice(0, 2000) || null
-    if (body.propertyUrl !== undefined) data.propertyUrl = String(body.propertyUrl || '').trim().slice(0, 2000) || null
+    if (body.imageUrl !== undefined) {
+      const imageUrl = String(body.imageUrl || '').trim().slice(0, 2000)
+      if (imageUrl && !isValidHttpsUrl(imageUrl)) return NextResponse.json({ error: 'Image URL must be a valid HTTPS URL.' }, { status: 400 })
+      data.imageUrl = imageUrl || null
+    }
+    if (body.propertyUrl !== undefined) {
+      const propertyUrl = String(body.propertyUrl || '').trim().slice(0, 2000)
+      if (propertyUrl && !isValidHttpsUrl(propertyUrl)) return NextResponse.json({ error: 'Property URL must be a valid HTTPS URL.' }, { status: 400 })
+      data.propertyUrl = propertyUrl || null
+    }
     if (body.price !== undefined) {
       const price = parsePropertyPrice(body.price)
       if (!price) return NextResponse.json({ error: 'Valid positive price is required.' }, { status: 400 })

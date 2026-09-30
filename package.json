@@ -1,15 +1,19 @@
 {
-  "name": "marketplace-platform",
+  "name": "housing-pro",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker:rerent": "node scripts/rerent-worker.mjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:test-fixtures": "tsx scripts/create-local-test-fixtures.ts"
+    "db:test-fixtures": "tsx scripts/create-local-test-fixtures.ts",
+    "db:setup-e2e": "node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs scripts/setup-local-e2e.ts",
+    "db:local-sample-properties": "tsx scripts/create-local-sample-properties.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -21,6 +25,7 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "22.15.30",
     "@types/react": "19.1.6",
     "@types/react-dom": "19.1.5",

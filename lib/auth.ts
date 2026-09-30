@@ -1,5 +1,6 @@
 ﻿import { cookies } from 'next/headers'
 import { jwtVerify, SignJWT } from 'jose'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/prisma'
 
 export type SessionRole =
@@ -21,10 +22,14 @@ const PRODUCTION_COOKIE_NAME =
 const DEVELOPMENT_COOKIE_NAME =
   'platform_session'
 
+function isDevelopmentRuntime() {
+  return process.env.NODE_ENV === 'development'
+}
+
 function getCookieName() {
-  return process.env.NODE_ENV === 'production'
-    ? PRODUCTION_COOKIE_NAME
-    : DEVELOPMENT_COOKIE_NAME
+  return isDevelopmentRuntime()
+    ? DEVELOPMENT_COOKIE_NAME
+    : PRODUCTION_COOKIE_NAME
 }
 
 function getSecret() {
@@ -32,9 +37,9 @@ function getSecret() {
     process.env.AUTH_SECRET?.trim()
 
   if (!value || value.length < 32) {
-    if (process.env.NODE_ENV === 'production') {
+    if (!isDevelopmentRuntime()) {
       throw new Error(
-        'AUTH_SECRET must be set to a random value of at least 32 characters in production.',
+        'AUTH_SECRET must be set to a random value of at least 32 characters outside development.',
       )
     }
 
@@ -46,12 +51,13 @@ function getSecret() {
 
 export async function createSession(
   session: Session,
+  passwordHash: string,
 ) {
   const secret = new TextEncoder().encode(
     getSecret(),
   )
 
-  const token = await new SignJWT(session)
+  const token = await new SignJWT({ ...session, credentialVersion: getCredentialVersion(session, passwordHash) })
     .setProtectedHeader({
       alg: 'HS256',
       typ: 'JWT',
@@ -65,11 +71,16 @@ export async function createSession(
   jar.set(getCookieName(), token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure:
-      process.env.NODE_ENV === 'production',
+    secure: !isDevelopmentRuntime(),
     path: '/',
     maxAge: 60 * 60 * 8,
   })
+}
+
+function getCredentialVersion(session: Pick<Session, 'role' | 'sub'>, passwordHash: string) {
+  return createHmac('sha256', getSecret())
+    .update(`${session.role}:${session.sub}:${passwordHash}`, 'utf8')
+    .digest('hex')
 }
 
 export async function getSession(): Promise<Session | null> {
@@ -139,12 +150,14 @@ export async function getSession(): Promise<Session | null> {
             status: true,
             adminType: true,
             permissions: true,
+            passwordHash: true,
           },
         }) as any
 
       if (
         !account ||
-        account.status !== 'ACTIVE'
+        account.status !== 'ACTIVE' ||
+        !validCredentialVersion(payload.credentialVersion, getCredentialVersion({ role, sub: String(payload.sub) }, account.passwordHash))
       ) {
         return null
       }
@@ -169,12 +182,14 @@ export async function getSession(): Promise<Session | null> {
           select: {
             id: true,
             status: true,
+            passwordHash: true,
           },
         })
 
       if (
         !manager ||
-        manager.status !== 'ACTIVE'
+        manager.status !== 'ACTIVE' ||
+        !validCredentialVersion(payload.credentialVersion, getCredentialVersion({ role, sub: String(payload.sub) }, manager.passwordHash))
       ) {
         return null
       }
@@ -198,12 +213,16 @@ export async function getSession(): Promise<Session | null> {
           id: true,
           managerId: true,
           status: true,
+          passwordHash: true,
+          manager: { select: { status: true } },
         },
       })
 
     if (
       !user ||
-      user.status !== 'ACTIVE'
+      user.status !== 'ACTIVE' ||
+      user.manager.status !== 'ACTIVE' ||
+      !validCredentialVersion(payload.credentialVersion, getCredentialVersion({ role, sub: String(payload.sub) }, user.passwordHash))
     ) {
       return null
     }
@@ -216,6 +235,11 @@ export async function getSession(): Promise<Session | null> {
   } catch {
     return null
   }
+}
+
+function validCredentialVersion(actual: unknown, expected: string) {
+  if (typeof actual !== 'string' || !/^[a-f0-9]{64}$/.test(actual)) return false
+  return timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'))
 }
 
 export async function clearSession() {

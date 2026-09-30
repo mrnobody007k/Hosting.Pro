@@ -8,6 +8,7 @@ import {
   readJson,
   requireSameOrigin,
 } from '@/lib/security'
+import { getPublicAppOrigin } from '@/lib/security'
 
 export async function GET(req: Request) {
   try {
@@ -15,9 +16,21 @@ export async function GET(req: Request) {
     if (!auth.ok) return auth.response
     const session = auth.session
 
-    const setting = await prisma.platformSetting.findFirst({
+    const [setting, activeManagers] = await Promise.all([prisma.platformSetting.findFirst({
       orderBy: { updatedAt: 'desc' },
-    })
+      select: {
+        id: true,
+        managerSeatLimit: true,
+        welcomeBalance: true,
+        day2ProfitRate: true,
+        day3ProfitRate: true,
+        rerentProfitRate: true,
+        rerentDelaySeconds: true,
+        depositInstructions: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }), prisma.manager.count({ where: { status: 'ACTIVE' } })])
 
     if (!setting) {
       return NextResponse.json({
@@ -33,17 +46,21 @@ export async function GET(req: Request) {
           createdAt: null,
           updatedAt: null,
         },
+        activeManagers,
+        publicAppOrigin: getPublicAppOrigin() ?? null,
       })
     }
 
     return NextResponse.json({
       setting: {
         ...setting,
-        welcomeBalance: setting.welcomeBalance.toString(),
+        welcomeBalance: '120.00',
         day2ProfitRate: setting.day2ProfitRate.toString(),
         day3ProfitRate: setting.day3ProfitRate.toString(),
         rerentProfitRate: setting.rerentProfitRate.toString(),
       },
+      activeManagers,
+      publicAppOrigin: getPublicAppOrigin() ?? null,
     })
   } catch (error) {
     console.error('ADMIN_SETTINGS_READ_ERROR', error)
@@ -138,7 +155,19 @@ export async function PATCH(req: Request) {
                           instructions ||
                           existing.depositInstructions,
                       }
-                    : {}),
+                      : {}),
+                },
+                select: {
+                  id: true,
+                  managerSeatLimit: true,
+                  welcomeBalance: true,
+                  day2ProfitRate: true,
+                  day3ProfitRate: true,
+                  rerentProfitRate: true,
+                  rerentDelaySeconds: true,
+                  depositInstructions: true,
+                  createdAt: true,
+                  updatedAt: true,
                 },
               })
           } else {
@@ -152,7 +181,19 @@ export async function PATCH(req: Request) {
                         depositInstructions:
                           instructions,
                       }
-                    : {}),
+                      : {}),
+                },
+                select: {
+                  id: true,
+                  managerSeatLimit: true,
+                  welcomeBalance: true,
+                  day2ProfitRate: true,
+                  day3ProfitRate: true,
+                  rerentProfitRate: true,
+                  rerentDelaySeconds: true,
+                  depositInstructions: true,
+                  createdAt: true,
+                  updatedAt: true,
                 },
               })
           }
@@ -189,7 +230,7 @@ export async function PATCH(req: Request) {
       ok: true,
       setting: {
         ...setting,
-        welcomeBalance: setting.welcomeBalance.toString(),
+        welcomeBalance: '120.00',
         day2ProfitRate: setting.day2ProfitRate.toString(),
         day3ProfitRate: setting.day3ProfitRate.toString(),
         rerentProfitRate: setting.rerentProfitRate.toString(),

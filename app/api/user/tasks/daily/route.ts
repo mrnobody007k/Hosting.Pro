@@ -3,22 +3,12 @@ import { Prisma } from '@prisma/client'
 import { Decimal } from 'decimal.js'
 import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
+import { getClientDay } from '@/lib/client-day'
 import { readJson, requireSameOrigin, handleRequestSecurityError } from '@/lib/security'
 
 const DAY_2_RATE = new Decimal('1.20')
 const DAY_3_RATE = new Decimal('1.40')
 const DAY_2_TYPES = ['DAY_2_MORNING', 'DAY_2_AFTERNOON'] as const
-
-function clientDay(approvedAt: Date | null, createdAt: Date) {
-  const start = approvedAt || createdAt
-  const firstDay = new Date(start); const today = new Date()
-  firstDay.setHours(0, 0, 0, 0); today.setHours(0, 0, 0, 0)
-  return Math.max(1, Math.floor((today.getTime() - firstDay.getTime()) / 86400000) + 1)
-}
-
-function principalProfit(amount: Decimal, rate: Decimal) {
-  return amount.mul(rate).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-}
 
 async function latestVerifiedActiveOrder(tx: Prisma.TransactionClient, userId: string, managerId: string) {
   return tx.order.findFirst({
@@ -40,7 +30,7 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: 'User not found.' }, { status: 404 })
     if (user.status !== 'ACTIVE' || user.signupStatus !== 'APPROVED' || user.manager.status !== 'ACTIVE') return NextResponse.json({ error: 'Your account setup is still in progress.' }, { status: 403 })
 
-    const day = clientDay(user.approvedAt, user.createdAt)
+    const day = getClientDay(user.approvedAt, user.createdAt)
 
     const verifiedOrder = await latestVerifiedActiveOrder(prisma, user.id, session.managerId!)
 
@@ -101,8 +91,9 @@ export async function POST(req: Request) {
       })
       if (!task) throw new Error('TASK_NOT_FOUND')
       if (task.user.status !== 'ACTIVE' || task.user.signupStatus !== 'APPROVED' || task.user.managerId !== session.managerId || task.user.manager.status !== 'ACTIVE') throw new Error('USER_INACTIVE')
-      if (task.status === 'COMPLETED') return { already: true, profit: task.profitAmount.toString(), membershipStatus: task.user.membershipStatus }
-      if (task.status !== 'PENDING' && task.status !== 'IN_PROGRESS') throw new Error('TASK_UNAVAILABLE')
+      if (task.status === 'COMPLETED') return { already: true, status: task.status, membershipStatus: task.user.membershipStatus }
+      const retryingRejected = task.status === 'REJECTED'
+      if (task.status !== 'PENDING' && task.status !== 'IN_PROGRESS' && !retryingRejected) throw new Error('TASK_UNAVAILABLE')
       if (task.type === 'DAY_3_OFFICIAL' && task.user.membershipStatus !== 'OFFICIAL_MEMBER') throw new Error('NOT_OFFICIAL')
       if (task.type !== 'DAY_3_OFFICIAL' && task.user.membershipStatus !== 'DAY_2') throw new Error('NOT_DAY_2')
       if (!task.order || task.order.userId !== session.sub || task.order.managerId !== session.managerId || task.order.status !== 'ACTIVE' || task.order.paymentStatus !== 'PAID' || !task.order.paymentVerifiedAt) throw new Error('VERIFIED_ORDER_REQUIRED')
@@ -110,42 +101,21 @@ export async function POST(req: Request) {
       const sameTypeTasks = await tx.task.findMany({ where: { userId: session.sub, managerId: session.managerId!, type: task.type }, orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }], select: { id: true } })
       if (sameTypeTasks[0]?.id !== task.id) throw new Error('TASK_UNAVAILABLE')
 
-      const profitRate = task.type === 'DAY_3_OFFICIAL' ? DAY_3_RATE : DAY_2_RATE
-      const principal = new Decimal(task.order.amount.toString())
-      const profit = principalProfit(principal, profitRate)
-      if (!profit.isFinite() || profit.isNegative() || profit.decimalPlaces() > 2) throw new Error('INVALID_PROFIT')
-      const priorCredit = await tx.transaction.findFirst({ where: { userId: session.sub, managerId: session.managerId!, type: 'PROFIT', reference: task.id }, select: { id: true } })
-      if (priorCredit) throw new Error('TASK_ALREADY_CREDITED')
-      const wallet = await tx.wallet.findUnique({ where: { userId: session.sub }, select: { balance: true } })
-      if (!wallet) throw new Error('WALLET_NOT_FOUND')
-      const balanceBefore = new Decimal(wallet.balance.toString())
-      const balanceAfter = balanceBefore.add(profit)
-      const completedAt = new Date()
-      const claimed = await tx.task.updateMany({ where: { id: task.id, userId: session.sub, managerId: session.managerId!, status: { in: ['PENDING', 'IN_PROGRESS'] } }, data: { status: 'COMPLETED', startedAt: task.startedAt || completedAt, submittedAt: completedAt, completedAt, profitRate: profitRate.toFixed(2), profitAmount: profit } })
-      if (claimed.count !== 1) throw new Error('TASK_UNAVAILABLE')
-
-      await tx.wallet.update({ where: { userId: session.sub }, data: { balance: { increment: profit } } })
-      await tx.transaction.create({ data: { userId: session.sub, managerId: session.managerId!, type: 'PROFIT', amount: profit, balanceBefore, balanceAfter, reference: task.id, note: `${task.title} profit for order ${task.order.orderCode} at ${profitRate.toFixed(2)}%` } })
-      await tx.notification.create({ data: { userId: session.sub, type: 'WALLET', title: 'Task completed', message: `${task.title} is complete. INR ${profit.toFixed(2)} profit was added to your wallet.` } })
-      await tx.auditLog.create({ data: { actorType: 'USER', actorId: session.sub, managerId: session.managerId!, action: 'DAILY_TASK_COMPLETED', targetType: 'TASK', targetId: task.id, amount: profit, metadata: { taskType: task.type, orderId: task.order.id, orderCode: task.order.orderCode, profitRate: profitRate.toFixed(2), principal: principal.toString(), profit: profit.toFixed(2) } } })
-
-      let membershipStatus = task.user.membershipStatus
-      if (task.type !== 'DAY_3_OFFICIAL') {
-        const day2Tasks = await tx.task.findMany({ where: { userId: session.sub, managerId: session.managerId!, type: { in: [...DAY_2_TYPES] } }, orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }], select: { id: true, type: true, status: true } })
-        const completedTypes = new Set(DAY_2_TYPES.filter((type) => day2Tasks.find((item) => item.type === type)?.status === 'COMPLETED'))
-        const currentTypeIsCompleted = day2Tasks.find((item) => item.type === task.type)?.id === task.id
-        if (currentTypeIsCompleted && (task.type === 'DAY_2_MORNING' || task.type === 'DAY_2_AFTERNOON')) completedTypes.add(task.type)
-        if (DAY_2_TYPES.every((type) => completedTypes.has(type)) && membershipStatus === 'DAY_2') {
-          const promoted = await tx.user.updateMany({ where: { id: session.sub, managerId: session.managerId!, signupStatus: 'APPROVED', membershipStatus: 'DAY_2' }, data: { membershipStatus: 'OFFICIAL_MEMBER', officialMemberAt: completedAt } })
-          if (promoted.count === 1) {
-            membershipStatus = 'OFFICIAL_MEMBER'
-            await tx.notification.create({ data: { userId: session.sub, type: 'SUCCESS', title: 'Official membership unlocked', message: 'Both required Day 2 tasks are complete. Your Day 3 membership is active.' } })
-          }
-        }
-      }
-      return { already: false, profit: profit.toFixed(2), membershipStatus }
+      const submittedAt = new Date()
+      const submitted = await tx.task.updateMany({
+        where: { id: task.id, userId: session.sub, managerId: session.managerId!, status: { in: ['PENDING', 'IN_PROGRESS', 'REJECTED'] } },
+        data: { status: 'SUBMITTED', startedAt: task.startedAt || submittedAt, submittedAt },
+      })
+      if (submitted.count !== 1) throw new Error('TASK_UNAVAILABLE')
+      await tx.notification.create({
+          data: { userId: session.sub, type: 'TASK', title: retryingRejected ? 'Task retry submitted for review' : 'Task submitted for review', message: `${task.title} was submitted and is awaiting manager verification. No profit is credited until it is verified.` },
+      })
+      await tx.auditLog.create({
+        data: { actorType: 'USER', actorId: session.sub, managerId: session.managerId!, action: retryingRejected ? 'DAILY_TASK_RETRY_SUBMITTED' : 'DAILY_TASK_SUBMITTED', targetType: 'TASK', targetId: task.id, metadata: { taskType: task.type, orderId: task.order.id, orderCode: task.order.orderCode } },
+      })
+      return { already: false, retryingRejected, status: 'SUBMITTED' as const, membershipStatus: task.user.membershipStatus }
     }, { isolationLevel: 'Serializable' })
-    return NextResponse.json({ ok: true, completed: true, ...result, message: 'Task completed successfully.' })
+    return NextResponse.json({ ok: true, completed: result.already, ...result, message: result.already ? 'This task is already completed.' : result.retryingRejected ? 'Rejected task resubmitted and awaiting manager verification.' : 'Task submitted and awaiting manager verification.' })
   } catch (error) {
     const securityResponse = handleRequestSecurityError(error)
     if (securityResponse) return securityResponse
@@ -154,7 +124,6 @@ export async function POST(req: Request) {
       TASK_NOT_FOUND: ['Daily task not found.', 404], USER_INACTIVE: ['Your account is not active.', 403], TASK_UNAVAILABLE: ['This task is no longer available.', 409],
       NOT_OFFICIAL: ['Complete both Day 2 tasks before starting Day 3.', 409], NOT_DAY_2: ['Complete account progression before starting Day 2.', 409],
       VERIFIED_ORDER_REQUIRED: ['A verified active booking is required for this task.', 409], WALLET_NOT_FOUND: ['Your wallet could not be found.', 404], INVALID_PROFIT: ['Task profit could not be calculated.', 500],
-      TASK_ALREADY_CREDITED: ['This task profit has already been recorded.', 409],
     }
     if (map[code]) return NextResponse.json({ error: map[code][0] }, { status: map[code][1] })
     console.error('USER_DAILY_TASK_COMPLETE_ERROR', error)

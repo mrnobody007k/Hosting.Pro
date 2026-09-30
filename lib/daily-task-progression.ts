@@ -1,18 +1,10 @@
 import { Prisma } from '@prisma/client'
 import Decimal from 'decimal.js'
+import { getClientDay } from '@/lib/client-day'
 
 const DAY_2_RATE = new Decimal('1.20')
 const DAY_3_RATE = new Decimal('1.40')
 const DAY_2_TYPES = ['DAY_2_MORNING', 'DAY_2_AFTERNOON'] as const
-
-function clientDay(approvedAt: Date | null, createdAt: Date) {
-  const start = approvedAt || createdAt
-  const firstDay = new Date(start)
-  const today = new Date()
-  firstDay.setHours(0, 0, 0, 0)
-  today.setHours(0, 0, 0, 0)
-  return Math.max(1, Math.floor((today.getTime() - firstDay.getTime()) / 86400000) + 1)
-}
 
 export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId: string, managerId: string) {
   const user = await tx.user.findFirst({
@@ -22,7 +14,7 @@ export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId
   if (!user) throw new Error('USER_NOT_FOUND')
   if (user.status !== 'ACTIVE' || user.signupStatus !== 'APPROVED' || user.manager.status !== 'ACTIVE') throw new Error('USER_INACTIVE')
 
-  const day = clientDay(user.approvedAt, user.createdAt)
+  const day = getClientDay(user.approvedAt, user.createdAt)
   const verifiedOrder = await tx.order.findFirst({
     where: { userId, managerId, status: 'ACTIVE', paymentStatus: 'PAID', paymentVerifiedAt: { not: null } },
     orderBy: [{ paymentVerifiedAt: 'desc' }, { createdAt: 'desc' }],
@@ -61,7 +53,16 @@ export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId
     orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }],
     select: { id: true, type: true, status: true },
   })
-  const bothComplete = DAY_2_TYPES.every((type) => day2Tasks.some((task) => task.type === type && task.status === 'COMPLETED'))
+  const completedDay2 = day2Tasks.filter((task) => task.status === 'COMPLETED')
+  const day2Credits = await tx.transaction.findMany({
+    where: { userId, managerId, type: 'PROFIT', reference: { in: completedDay2.map((task) => task.id) } },
+    select: { reference: true },
+  })
+  const creditedTaskIds = new Set(day2Credits.map((credit) => credit.reference))
+  const bothComplete = DAY_2_TYPES.every((type) => {
+    const task = day2Tasks.find((item) => item.type === type && item.status === 'COMPLETED')
+    return Boolean(task && creditedTaskIds.has(task.id))
+  })
   let membershipStatus = user.membershipStatus
   if (bothComplete && membershipStatus !== 'OFFICIAL_MEMBER') {
     const promoted = await tx.user.updateMany({ where: { id: userId, managerId, membershipStatus: { not: 'OFFICIAL_MEMBER' } }, data: { membershipStatus: 'OFFICIAL_MEMBER', officialMemberAt: new Date() } })

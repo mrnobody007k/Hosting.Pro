@@ -24,6 +24,7 @@ type Property = {
     orders: number;
   };
 };
+type PropertyStats = { total: number; active: number; inactive: number; soldOut: number; totalOrders: number };
 
 export default function PropertiesPage() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -32,17 +33,22 @@ export default function PropertiesPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ title: "", location: "", price: "", imageUrl: "", propertyUrl: "", status: "ACTIVE" });
+  const [form, setForm] = useState({ title: "", location: "", description: "", price: "", imageUrl: "", propertyUrl: "", status: "ACTIVE" });
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [propertyStats, setPropertyStats] = useState<PropertyStats>({ total: 0, active: 0, inactive: 0, soldOut: 0, totalOrders: 0 });
 
-  async function loadProperties() {
+  async function loadProperties(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
-      const res = await fetch("/api/admin/properties", {
-        cache: "no-store",
-      });
+      const params = new URLSearchParams({ limit: "100", search: search.trim(), status });
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(`/api/admin/properties?${params}`, { cache: "no-store" });
 
       const json = await res.json();
 
@@ -50,19 +56,23 @@ export default function PropertiesPage() {
         throw new Error(json?.error || "Failed to load properties");
       }
 
-      setProperties(json.properties || []);
+      setProperties((current) => append ? [...current, ...(json.properties || [])] : (json.properties || []));
+      setPropertyStats(json.stats || { total: 0, active: 0, inactive: 0, soldOut: 0, totalOrders: 0 });
+      setNextCursor(json.nextCursor || null);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load properties"
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
   useEffect(() => {
-    loadProperties();
-  }, []);
+    const timer = window.setTimeout(() => { void loadProperties(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, status]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -82,36 +92,28 @@ export default function PropertiesPage() {
     });
   }, [properties, search, status]);
 
-  const active = properties.filter(
-    (property) => property.status === "ACTIVE"
-  ).length;
-
-  const soldOut = properties.filter(
-    (property) => property.status === "SOLD_OUT"
-  ).length;
-
-  const inactive = properties.filter(
-    (property) => property.status === "INACTIVE"
-  ).length;
-
-  const totalOrders = properties.reduce(
-    (sum, property) => sum + property._count.orders,
-    0
-  );
-
   async function createProperty() {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/admin/properties", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const res = await fetch("/api/admin/properties", { method: editingId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editingId ? { ...form, id: editingId } : form) });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Unable to create property");
-      setForm({ title: "", location: "", price: "", imageUrl: "", propertyUrl: "", status: "ACTIVE" });
+      setForm({ title: "", location: "", description: "", price: "", imageUrl: "", propertyUrl: "", status: "ACTIVE" });
+      setEditingId(null);
       setShowCreate(false);
+      setSuccess(editingId ? "Property updated." : "Property created.");
       await loadProperties();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create property");
     } finally { setSaving(false); }
+  }
+
+  function editProperty(property: Property) {
+    setEditingId(property.id);
+    setForm({ title: property.title, location: property.location || "", description: property.description || "", price: String(property.price), imageUrl: property.imageUrl || "", propertyUrl: property.propertyUrl || "", status: property.status });
+    setShowCreate(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function toggleStatus(property: Property) {
@@ -121,6 +123,7 @@ export default function PropertiesPage() {
       const res = await fetch("/api/admin/properties", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: property.id, status: next }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Unable to update property");
+      setSuccess(`Property ${next.toLowerCase()}.`);
       await loadProperties();
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to update property"); }
   }
@@ -145,8 +148,8 @@ export default function PropertiesPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setShowCreate((v) => !v)} style={{ border: 0, borderRadius: 9, padding: "10px 16px", background: "#2563eb", color: "#fff", fontWeight: 800, cursor: "pointer" }}>{showCreate ? "Close" : "+ Add Property"}</button>
-            <button onClick={loadProperties} disabled={loading} style={{ border: 0, borderRadius: 9, padding: "10px 16px", background: "#111827", color: "#fff", fontWeight: 700, cursor: loading ? "wait" : "pointer" }}>{loading ? "Loading..." : "Refresh"}</button>
+            <button onClick={() => { setEditingId(null); setForm({ title: "", location: "", description: "", price: "", imageUrl: "", propertyUrl: "", status: "ACTIVE" }); setShowCreate((v) => !v); }} style={{ border: 0, borderRadius: 9, padding: "10px 16px", background: "#2563eb", color: "#fff", fontWeight: 800, cursor: "pointer" }}>{showCreate ? "Close" : "+ Add Property"}</button>
+            <button onClick={() => loadProperties()} disabled={loading} style={{ border: 0, borderRadius: 9, padding: "10px 16px", background: "#111827", color: "#fff", fontWeight: 700, cursor: loading ? "wait" : "pointer" }}>{loading ? "Loading..." : "Refresh"}</button>
           </div>
         </div>
 
@@ -163,7 +166,7 @@ export default function PropertiesPage() {
               Total Properties
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {properties.length}
+              {propertyStats.total}
             </div>
           </div>
 
@@ -179,7 +182,7 @@ export default function PropertiesPage() {
                 color: "#166534",
               }}
             >
-              {active}
+              {propertyStats.active}
             </div>
           </div>
 
@@ -188,7 +191,7 @@ export default function PropertiesPage() {
               Sold Out
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {soldOut}
+              {propertyStats.soldOut}
             </div>
           </div>
 
@@ -197,7 +200,7 @@ export default function PropertiesPage() {
               Inactive
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {inactive}
+              {propertyStats.inactive}
             </div>
           </div>
 
@@ -206,7 +209,7 @@ export default function PropertiesPage() {
               Total Orders
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {totalOrders}
+              {propertyStats.totalOrders}
             </div>
           </div>
         </div>
@@ -251,19 +254,21 @@ export default function PropertiesPage() {
 
         {showCreate && (
           <div className="admin-card" style={{ marginTop: 20 }}>
-            <strong style={{ fontSize: 16 }}>Create Property</strong>
+            <strong style={{ fontSize: 16 }}>{editingId ? "Edit Property" : "Create Property"}</strong>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12, marginTop: 14 }}>
               {([["title","Property title"],["location","Location"],["price","Price"],["imageUrl","Image URL"],["propertyUrl","Property URL"]] as const).map(([key,label]) => (
                 <input key={key} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} placeholder={label} style={{ padding: "11px 13px", border: "1px solid #dbe1e8", borderRadius: 9 }} />
               ))}
+              <textarea aria-label="Property description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Property description" rows={3} maxLength={4000} style={{ gridColumn: "1 / -1", padding: "11px 13px", border: "1px solid #dbe1e8", borderRadius: 9, resize: "vertical" }} />
               <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={{ padding: "11px 13px", border: "1px solid #dbe1e8", borderRadius: 9, background: "#fff" }}>
                 <option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="SOLD_OUT">Sold Out</option>
               </select>
             </div>
-            <button onClick={createProperty} disabled={saving} style={{ marginTop: 14, border: 0, borderRadius: 9, padding: "10px 16px", background: "#111827", color: "#fff", fontWeight: 800 }}>{saving ? "Creating..." : "Create Property"}</button>
+            <button onClick={createProperty} disabled={saving} style={{ marginTop: 14, border: 0, borderRadius: 9, padding: "10px 16px", background: "#111827", color: "#fff", fontWeight: 800 }}>{saving ? "Saving..." : editingId ? "Save Property" : "Create Property"}</button>
           </div>
         )}
 
+        {success && <div role="status" className="admin-card" style={{ marginTop: 16, color: "#047857" }}>{success}</div>}
         {error && (
           <div
             className="admin-card"
@@ -436,15 +441,19 @@ export default function PropertiesPage() {
                       {new Date(property.createdAt).toLocaleDateString()}
                     </td>
                     <td style={{ padding: "15px 16px" }}>
-                      <button onClick={() => toggleStatus(property)} style={{ border: "1px solid #dbe1e8", background: "#fff", borderRadius: 8, padding: "7px 10px", fontWeight: 700, cursor: "pointer" }}>
-                        {property.status === "ACTIVE" ? "Disable" : "Activate"}
-                      </button>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button onClick={() => editProperty(property)} style={{ border: "1px solid #dbe1e8", background: "#fff", borderRadius: 8, padding: "7px 10px", fontWeight: 700, cursor: "pointer" }}>Edit</button>
+                        <button onClick={() => toggleStatus(property)} style={{ border: "1px solid #dbe1e8", background: "#fff", borderRadius: 8, padding: "7px 10px", fontWeight: 700, cursor: "pointer" }}>
+                          {property.status === "ACTIVE" ? "Disable" : "Activate"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => loadProperties(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more properties"}</button></div>}
         </div>
       </div>
     </AdminShell>

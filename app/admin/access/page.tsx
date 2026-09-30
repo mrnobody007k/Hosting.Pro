@@ -23,15 +23,11 @@ type SecurityInfo = {
 type LoginAccessInfo = {
   customer: {
     active: boolean;
-    token: string | null;
-    loginUrl: string | null;
-    updatedAt: string | null;
+    lastRotatedAt: string | null;
   };
   manager: {
     active: boolean;
-    token: string | null;
-    loginUrl: string | null;
-    updatedAt: string | null;
+    lastRotatedAt: string | null;
   };
 };
 
@@ -50,6 +46,7 @@ export default function Page() {
 
   const [rotatingCustomer, setRotatingCustomer] = useState(false);
   const [rotatingManager, setRotatingManager] = useState(false);
+  const [revokingTarget, setRevokingTarget] = useState<"customer" | "manager" | null>(null);
   const [newCustomerUrl, setNewCustomerUrl] = useState("");
   const [newManagerUrl, setNewManagerUrl] = useState("");
 
@@ -175,6 +172,31 @@ export default function Page() {
     } finally {
       setRotatingCustomer(false);
       setRotatingManager(false);
+    }
+  }
+
+  async function revokeLoginAccess(target: "customer" | "manager") {
+    const label = target === "customer" ? "customer" : "manager";
+    if (!window.confirm(`Revoke the active ${label} access link? Anyone using it will lose access immediately.`)) return;
+    setRevokingTarget(target);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/login-access", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to revoke access link.");
+      if (target === "customer") setNewCustomerUrl("");
+      else setNewManagerUrl("");
+      setMessage(data.revoked ? `The ${label} access link was revoked.` : `No active ${label} link was configured.`);
+      await loadAccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to revoke access link.");
+    } finally {
+      setRevokingTarget(null);
     }
   }
 
@@ -381,26 +403,10 @@ export default function Page() {
 
               {loginAccess?.customer?.active ? (
                 <div className="login-access-details">
-                  <div className="detail-row">
-                    <span>Login URL</span>
-                    <div className="url-display">
-                      <code className="mono">{loginAccess.customer.loginUrl}</code>
-                      <button
-                        className="copy-btn"
-                        onClick={() => copyToClipboard(loginAccess.customer.loginUrl!)}
-                        disabled={rotatingCustomer}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
+                  <p>Active path: <code>/login/[access-token]</code>. The token is never shown again after creation.</p>
                   <div className="detail-row">
                     <span>Last Rotated</span>
-                    <strong>{loginAccess.customer.updatedAt ? new Date(loginAccess.customer.updatedAt).toLocaleString() : "—"}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>Token</span>
-                    <code className="mono token-display">{loginAccess.customer.token}</code>
+                    <strong>{loginAccess.customer.lastRotatedAt ? new Date(loginAccess.customer.lastRotatedAt).toLocaleString() : "Not recorded"}</strong>
                   </div>
 
                   <div className="warning-box">
@@ -414,6 +420,9 @@ export default function Page() {
                     disabled={rotatingCustomer}
                   >
                     {rotatingCustomer ? "Generating..." : "Generate New Customer Login URL"}
+                  </button>
+                  <button className="revoke-access-btn" onClick={() => revokeLoginAccess("customer")} disabled={revokingTarget !== null}>
+                    {revokingTarget === "customer" ? "Revoking..." : "Revoke Customer Access Link"}
                   </button>
 
                   {newCustomerUrl && (
@@ -462,26 +471,10 @@ export default function Page() {
 
               {loginAccess?.manager?.active ? (
                 <div className="login-access-details">
-                  <div className="detail-row">
-                    <span>Login URL</span>
-                    <div className="url-display">
-                      <code className="mono">{loginAccess.manager.loginUrl}</code>
-                      <button
-                        className="copy-btn"
-                        onClick={() => copyToClipboard(loginAccess.manager.loginUrl!)}
-                        disabled={rotatingManager}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
+                  <p>Active path: <code>/manager-login/[access-token]</code>. The token is never shown again after creation.</p>
                   <div className="detail-row">
                     <span>Last Rotated</span>
-                    <strong>{loginAccess.manager.updatedAt ? new Date(loginAccess.manager.updatedAt).toLocaleString() : "—"}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>Token</span>
-                    <code className="mono token-display">{loginAccess.manager.token}</code>
+                    <strong>{loginAccess.manager.lastRotatedAt ? new Date(loginAccess.manager.lastRotatedAt).toLocaleString() : "Not recorded"}</strong>
                   </div>
 
                   <div className="warning-box">
@@ -495,6 +488,9 @@ export default function Page() {
                     disabled={rotatingManager}
                   >
                     {rotatingManager ? "Generating..." : "Generate New Manager Login URL"}
+                  </button>
+                  <button className="revoke-access-btn" onClick={() => revokeLoginAccess("manager")} disabled={revokingTarget !== null}>
+                    {revokingTarget === "manager" ? "Revoking..." : "Revoke Manager Access Link"}
                   </button>
 
                   {newManagerUrl && (
@@ -1024,6 +1020,20 @@ export default function Page() {
           opacity: 0.6;
           cursor: not-allowed;
         }
+
+        .revoke-access-btn {
+          width: 100%;
+          margin-top: 9px;
+          padding: 11px 16px;
+          border: 1px solid #fecaca;
+          border-radius: 10px;
+          background: #fff;
+          color: #b91c1c;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .revoke-access-btn:disabled { opacity: .55; cursor: wait; }
 
         .new-url-box {
           margin-top: 16px;

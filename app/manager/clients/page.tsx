@@ -20,7 +20,7 @@ type Client = {
 
 type Overview = {
   manager?: { name?: string };
-  stats?: { totalClients?: number; activeClients?: number; officialMembers?: number };
+  stats?: { totalClients?: number; activeClients?: number; officialMembers?: number; pendingSignups?: number };
   clients?: Client[];
   pendingSignups?: unknown[];
 };
@@ -57,24 +57,32 @@ function badge(v?: string) {
 
 export default function ManagerClientsPage() {
   const [data, setData] = useState<Overview | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [status, setStatus] = useState("ALL");
+  const [error, setError] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function load() {
-    setLoading(true);
-    const res = await fetch("/api/manager/overview", { cache: "no-store" });
-    if (res.status === 401) {
-      window.location.href="/manager-login";
-      return;
-    }
-    const json = await res.json();
-    setData(json);
-    setLoading(false);
+  async function load(append = false) {
+    if (append) setLoadingMore(true); else setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ q: search.trim(), status });
+      if (append && cursor) params.set("cursor", cursor);
+      const res = await fetch(`/api/manager/clients?${params}`, { cache: "no-store" });
+      if (res.status === 401) { window.location.href="/manager-login"; return; }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Unable to load clients.");
+      setData((current) => ({ ...json, clients: append ? [...(current?.clients || []), ...(json.clients || [])] : json.clients }));
+      setCursor(json.clients?.at(-1)?.id || null);
+      setNextCursor(json.nextCursor || null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load clients."); }
+    finally { setLoading(false); setLoadingMore(false); }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { setCursor(null); void load(false); }, 250); return () => window.clearTimeout(timer); }, [search, status]);
 
   const clients = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -92,7 +100,7 @@ export default function ManagerClientsPage() {
   return (
     <ManagerShell
       managerName={data?.manager?.name || "Manager"}
-      notificationCount={(data?.pendingSignups || []).length}
+      notificationCount={data?.stats?.pendingSignups ?? (data?.pendingSignups || []).length}
     >
       <div className="mc-head">
         <div>
@@ -100,7 +108,7 @@ export default function ManagerClientsPage() {
           <h1>My Clients</h1>
           <p>Clients registered through your Housing.pro referral are shown here.</p>
         </div>
-        <button className="mc-btn" onClick={load}>
+        <button className="mc-btn" onClick={() => void load(false)}>
           {loading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -117,12 +125,10 @@ export default function ManagerClientsPage() {
             <h2>Client Directory</h2>
             <p>Search and review your assigned clients.</p>
           </div>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, email, phone..."
-          />
+          <div className="mc-filters"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, phone..." /><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="ALL">All clients</option><option value="PENDING">Pending signup</option><option value="APPROVED">Approved signup</option><option value="REJECTED">Rejected signup</option><option value="ACTIVE">Active account</option><option value="DISABLED">Disabled account</option><option value="DAY_1">Day 1</option><option value="DAY_2">Day 2</option><option value="OFFICIAL_MEMBER">Official member</option></select></div>
         </div>
+
+        {error && <div className="mc-error" role="alert">{error} <button onClick={() => void load(false)}>Retry</button></div>}
 
         <div className="mc-table-wrap">
           <table>
@@ -155,8 +161,9 @@ export default function ManagerClientsPage() {
               ))}
             </tbody>
           </table>
-          {!clients.length && <div className="mc-empty">No clients found.</div>}
+          {!clients.length && !loading && <div className="mc-empty">No clients found.</div>}
         </div>
+        {nextCursor && <div className="mc-more"><button disabled={loadingMore} onClick={() => void load(true)}>{loadingMore ? "Loading…" : "Load more clients"}</button></div>}
       </section>
 
       <style jsx global>{`
@@ -176,6 +183,7 @@ export default function ManagerClientsPage() {
         .mc-toolbar h2{margin:0 0 5px;font-size:18px}
         .mc-toolbar p{margin:0;color:#64748b;font-size:12px}
         .mc-toolbar input{height:38px;width:270px;border:1px solid #dbe1ea;border-radius:9px;padding:0 12px;outline:0}
+        .mc-filters{display:flex;gap:8px;flex-wrap:wrap}.mc-filters select{height:38px;border:1px solid #dbe1ea;border-radius:9px;padding:0 10px;background:#fff}.mc-error{margin:12px 0;padding:12px;border-radius:9px;background:#fef2f2;color:#991b1b;font-size:12px}.mc-error button{margin-left:10px}.mc-more{text-align:center;padding:15px}.mc-more button{padding:9px 13px;border:1px solid #dbe1ea;border-radius:8px;background:#fff;cursor:pointer}
         .mc-table-wrap{overflow:auto;border:1px solid #eef2f7;border-radius:11px}
         .mc-table-wrap table{width:100%;min-width:850px;border-collapse:collapse}
         .mc-table-wrap th{background:#f8fafc;padding:11px;text-align:left;font-size:10px;color:#64748b;text-transform:uppercase}

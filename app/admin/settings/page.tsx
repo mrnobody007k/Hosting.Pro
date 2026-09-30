@@ -17,18 +17,12 @@ type Setting = {
   updatedAt: string | null;
 };
 
-type Overview = {
-  managers?: Array<{
-    id: string;
-    status: string;
-  }>;
-};
-
 export default function AdminSettingsPage() {
   const [setting, setSetting] = useState<Setting | null>(null);
   const [seatLimit, setSeatLimit] = useState("");
   const [depositInstructions, setDepositInstructions] = useState("");
   const [activeManagers, setActiveManagers] = useState(0);
+  const [publicAppOrigin, setPublicAppOrigin] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -57,18 +51,9 @@ export default function AdminSettingsPage() {
       setError("");
       setSuccess("");
 
-      const [settingsResponse, overviewResponse] =
-        await Promise.all([
-          fetch("/api/admin/settings", {
-            cache: "no-store",
-          }),
-          fetch("/api/admin/overview", {
-            cache: "no-store",
-          }),
-        ]);
+      const settingsResponse = await fetch("/api/admin/settings", { cache: "no-store" });
 
       const settingsData = await settingsResponse.json();
-      const overviewData = await overviewResponse.json();
 
       if (!settingsResponse.ok) {
         throw new Error(
@@ -76,24 +61,13 @@ export default function AdminSettingsPage() {
         );
       }
 
-      if (!overviewResponse.ok) {
-        throw new Error(
-          overviewData.error || "Unable to load manager information."
-        );
-      }
-
       const current: Setting = settingsData.setting;
+      setPublicAppOrigin(settingsData.publicAppOrigin || null);
       setSetting(current);
       setSeatLimit(String(current.managerSeatLimit));
       setDepositInstructions(current.depositInstructions || "");
 
-      const managers = overviewData.managers || [];
-      setActiveManagers(
-        managers.filter(
-          (manager: { status: string }) =>
-            manager.status === "ACTIVE"
-        ).length
-      );
+      setActiveManagers(Number(settingsData.activeManagers) || 0);
     } catch (err) {
       setError(
         err instanceof Error
@@ -207,6 +181,12 @@ export default function AdminSettingsPage() {
           </div>
         ) : (
           <>
+            <section className="settings-card platform-identity-card">
+              <div className="card-heading"><div><span className="card-kicker">PLATFORM</span><h2>Housing.pro</h2><p>Platform identity is fixed by the application branding.</p></div><div className="heading-icon">H</div></div>
+              <div className="readonly-list"><div className="readonly-row"><span>Public application origin</span><strong>{publicAppOrigin || "Not configured here"}</strong></div></div>
+              <p className="integration-note">The public origin is read from deployment configuration and is not editable here. Domain ownership and DNS verification are external steps.</p>
+            </section>
+
             <div className="settings-grid">
               <section className="settings-card">
                 <div className="card-heading">
@@ -295,7 +275,7 @@ export default function AdminSettingsPage() {
 
                 <div className="readonly-list">
                   <div className="readonly-row">
-                    <span>Welcome Balance</span>
+                    <span>Day 1 Welcome Credit</span>
                     <strong>
                       ₹{new Decimal(String(setting?.welcomeBalance || 0)).toFixed(2)}
                     </strong>
@@ -375,6 +355,21 @@ export default function AdminSettingsPage() {
                   {depositInstructions.length} / 4000
                 </div>
               </div>
+            </section>
+
+            <section className="settings-card integration-card">
+              <div className="card-heading">
+                <div>
+                  <span className="card-kicker">FUTURE SERVICES</span>
+                  <h2>Integrations</h2>
+                  <p>These providers are not connected or enabled in this deployment.</p>
+                </div>
+                <div className="heading-icon">+</div>
+              </div>
+              <div className="integration-grid">
+                {["Custom domain and DNS", "Email delivery", "SMS / OTP", "Image storage", "Monitoring", "Analytics", "Payment gateway", "Payout provider", "Multi-factor authentication"].map((name) => <div className="integration-row" key={name}><span>{name}</span><strong>NOT CONFIGURED</strong></div>)}
+              </div>
+              <p className="integration-note">The public application URL is supplied by deployment configuration. This page does not claim DNS ownership or provider verification.</p>
             </section>
 
             <section className="settings-card security-card">
@@ -503,6 +498,12 @@ export default function AdminSettingsPage() {
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 18px;
         }
+
+        .integration-card { margin-top: 18px; }
+        .integration-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-top:16px; }
+        .integration-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:12px; border:1px solid #e4e9f1; border-radius:10px; color:#344054; font-size:12px; }
+        .integration-row strong { color:#667085; font-size:9px; letter-spacing:.05em; white-space:nowrap; }
+        .integration-note { color:#667085; font-size:12px; line-height:1.55; }
 
         .settings-card {
           background: white;

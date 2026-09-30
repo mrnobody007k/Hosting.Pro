@@ -11,6 +11,58 @@ import {
   requireSameOrigin,
 } from '@/lib/security'
 
+export async function GET(request: Request) {
+  try {
+    const auth = await requireAdminAuth(AdminPermission.MANAGE_MANAGERS)
+    if (!auth.ok) return auth.response
+    const params = new URL(request.url).searchParams
+    const search = (params.get('search') || '').trim()
+    const status = params.get('status') || 'ALL'
+    const requestedLimit = Number(params.get('limit') || '50')
+    const limit = Math.min(Math.max(Number.isInteger(requestedLimit) ? requestedLimit : 50, 1), 100)
+    const cursor = params.get('cursor') || undefined
+    if (search.length > 200 || (cursor && cursor.length > 100) || (status !== 'ALL' && !['ACTIVE', 'SUSPENDED', 'DISABLED'].includes(status))) {
+      return NextResponse.json({ error: 'Invalid manager filter.' }, { status: 400 })
+    }
+    const where: Record<string, unknown> = {}
+    if (status !== 'ALL') where.status = status
+    if (search) where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { referralCode: { contains: search, mode: 'insensitive' } },
+    ]
+    const [managers, activeManagers, totalClients, setting] = await Promise.all([
+      prisma.manager.findMany({
+        where,
+        take: limit + 1,
+        cursor: cursor ? { id: cursor } : undefined,
+        skip: cursor ? 1 : undefined,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        select: {
+          id: true, name: true, email: true, referralCode: true, status: true, createdAt: true,
+          paymentAccountLabel: true, paymentAccountDetails: true,
+          _count: { select: { users: true } },
+        },
+      }),
+      prisma.manager.count({ where: { status: 'ACTIVE' } }),
+      prisma.user.count(),
+      prisma.platformSetting.findFirst({ select: { managerSeatLimit: true } }),
+    ])
+    const hasMore = managers.length > limit
+    if (hasMore) managers.pop()
+    return NextResponse.json({
+      managers,
+      activeManagers,
+      totalClients,
+      managerSeatLimit: setting?.managerSeatLimit ?? 10,
+      nextCursor: hasMore ? managers[managers.length - 1]?.id ?? null : null,
+    })
+  } catch (error) {
+    console.error('ADMIN_MANAGERS_GET_ERROR', error)
+    return NextResponse.json({ error: 'Unable to load managers.' }, { status: 500 })
+  }
+}
+
 export async function POST(req: Request) {
   try {
     requireSameOrigin(req)

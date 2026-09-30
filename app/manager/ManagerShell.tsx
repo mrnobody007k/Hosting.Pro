@@ -74,6 +74,8 @@ export default function ManagerShell({
 }) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState("")
 
   const initial = managerName.charAt(0).toUpperCase()
 
@@ -84,9 +86,14 @@ export default function ManagerShell({
 
   async function logout() {
     try {
-      await fetch("/api/auth/logout", { method: "POST" })
-    } finally {
+      setLoggingOut(true)
+      setLogoutError("")
+      const response = await fetch("/api/auth/logout", { method: "POST" })
+      if (!response.ok) throw new Error("Logout failed")
       window.location.href="/manager-login"
+    } catch {
+      setLoggingOut(false)
+      setLogoutError("We couldn't sign you out. Check your connection and try again.")
     }
   }
 
@@ -155,8 +162,9 @@ export default function ManagerShell({
             <span>Account and workspace preferences</span>
           </Link>
 
-          <button className="hp-shell-signout" onClick={logout}>
-            Sign out
+          {logoutError && <div className="hp-shell-logout-error" role="alert">{logoutError}</div>}
+          <button className="hp-shell-signout" onClick={logout} disabled={loggingOut}>
+            {loggingOut ? "Signing out…" : "Sign out"}
           </button>
         </div>
       </aside>
@@ -189,12 +197,12 @@ export default function ManagerShell({
               Visit Website
             </Link>
 
-            <button className="hp-shell-notification" aria-label="Notifications">
+            <Link href="/manager/signups" className="hp-shell-notification" aria-label={`${notificationCount} pending signup reviews`}>
               <span>●</span>
               {notificationCount > 0 && (
                 <b>{notificationCount > 9 ? "9+" : notificationCount}</b>
               )}
-            </button>
+            </Link>
 
             <div className="hp-shell-profile">
               <div className="hp-shell-avatar small">{initial}</div>
@@ -425,6 +433,8 @@ export default function ManagerShell({
           background: rgba(255,255,255,.06);
           color: #fff;
         }
+        .hp-shell-signout:disabled { opacity:.6; cursor:wait; }
+        .hp-shell-logout-error { margin:0 0 8px; padding:9px; border-radius:8px; background:rgba(255,220,216,.12); color:#ffd3cd; font-size:10px; line-height:1.45; }
 
         .hp-manager-main {
           min-height: 100vh;
@@ -500,6 +510,9 @@ export default function ManagerShell({
           background: #fff;
           color: #667085;
           cursor: pointer;
+          display: grid;
+          place-items: center;
+          text-decoration: none;
         }
 
         .hp-shell-notification > span {

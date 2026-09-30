@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import AdminShell from "../AdminShell";
 
 type Manager = {
@@ -18,21 +19,30 @@ type Manager = {
 type Overview = {
   managers?: Manager[];
   managerSeatLimit?: number;
+  activeManagers?: number;
+  totalClients?: number;
 };
 
 export default function ManagersPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", password: "", referralCode: "" });
 
-  async function load() {
+  async function load(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
-
-      const res = await fetch("/api/admin/overview", {
-        cache: "no-store",
-      });
+      const params = new URLSearchParams({ search: search.trim(), status, limit: "50" });
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(`/api/admin/managers?${params}`, { cache: "no-store" });
 
       const json = await res.json();
 
@@ -40,17 +50,35 @@ export default function ManagersPage() {
         throw new Error(json?.error || "Failed to load managers");
       }
 
-      setData(json);
+      setData((current) => ({
+        ...json,
+        managers: append ? [...(current?.managers || []), ...(json.managers || [])] : (json.managers || []),
+      }));
+      setNextCursor(json.nextCursor || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load managers");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    const timer = window.setTimeout(() => { void load(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, status]);
+
+  async function createManager(event: React.FormEvent) {
+    event.preventDefault(); setCreating(true); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/admin/managers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to create manager.");
+      setForm({ name: "", email: "", password: "", referralCode: "" });
+      setShowCreate(false); setMessage("Manager created."); await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unable to create manager."); }
+    finally { setCreating(false); }
+  }
 
   const managers = data?.managers || [];
   const limit = data?.managerSeatLimit ?? 0;
@@ -74,8 +102,10 @@ export default function ManagersPage() {
             </p>
           </div>
 
+          <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowCreate((visible) => !visible)} disabled={(data?.activeManagers ?? 0) >= (data?.managerSeatLimit ?? 0)} style={{ border: 0, borderRadius: 9, padding: "10px 14px", background: "#1d4ed8", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{showCreate ? "Close" : "Create manager"}</button>
           <button
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             style={{
               border: 0,
@@ -88,7 +118,23 @@ export default function ManagersPage() {
             }}
           >
             {loading ? "Loading..." : "Refresh"}
-          </button>
+          </button></div>
+        </div>
+
+        {message && <div role="status" className="admin-card" style={{ marginTop: 16, color: "#047857" }}>{message}</div>}
+        {showCreate && <form className="admin-card" onSubmit={createManager} style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+          <input required maxLength={120} placeholder="Manager name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input required type="email" maxLength={254} placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <input required type="password" minLength={12} maxLength={200} autoComplete="new-password" placeholder="Temporary password (12+ characters)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <input required maxLength={100} placeholder="Referral code" value={form.referralCode} onChange={(e) => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} />
+          <button type="submit" disabled={creating || (data?.activeManagers ?? 0) >= (data?.managerSeatLimit ?? 0)}>{creating ? "Creating…" : "Create manager"}</button>
+        </form>}
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
+          <input aria-label="Search managers" placeholder="Search name, email, or referral code" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 240, flex: 1, padding: 11, border: "1px solid #dbe1e8", borderRadius: 9 }} />
+          <select aria-label="Filter managers by status" value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: 11, border: "1px solid #dbe1e8", borderRadius: 9 }}>
+            <option value="ALL">All statuses</option><option value="ACTIVE">Active</option><option value="SUSPENDED">Suspended</option><option value="DISABLED">Disabled</option>
+          </select>
         </div>
 
         <div
@@ -104,7 +150,7 @@ export default function ManagersPage() {
               Active Managers
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {managers.filter((m) => m.status === "ACTIVE").length}
+              {data?.activeManagers ?? 0}
             </div>
           </div>
 
@@ -113,7 +159,7 @@ export default function ManagersPage() {
               Manager Seats
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {managers.length} / {limit || "—"}
+              {data?.activeManagers ?? 0} / {limit || "—"}
             </div>
           </div>
 
@@ -122,10 +168,7 @@ export default function ManagersPage() {
               Total Clients
             </div>
             <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>
-              {managers.reduce(
-                (sum, manager) => sum + (manager._count?.users || 0),
-                0
-              )}
+              {data?.totalClients ?? 0}
             </div>
           </div>
         </div>
@@ -213,7 +256,7 @@ export default function ManagersPage() {
                     }}
                   >
                     <td style={{ padding: "16px 18px", fontWeight: 700 }}>
-                      {manager.name}
+                      <Link href={`/admin/managers/${manager.id}`} style={{ color: "#1d4ed8", fontWeight: 800, textDecoration: "none" }}>{manager.name}</Link>
                     </td>
 
                     <td style={{ padding: "16px 18px", color: "#475569" }}>
@@ -272,6 +315,7 @@ export default function ManagersPage() {
               </tbody>
             </table>
           </div>
+          {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => load(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more managers"}</button></div>}
         </div>
       </div>
     </AdminShell>

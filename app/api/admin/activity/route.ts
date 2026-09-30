@@ -16,16 +16,17 @@ export async function GET(request: Request) {
     const actorType = (searchParams.get("actorType") || "").trim();
     const managerId = (searchParams.get("managerId") || "").trim();
     const action = (searchParams.get("action") || "").trim();
+    const cursor = searchParams.get("cursor") || undefined;
     const limitParam = Number(searchParams.get("limit") || "200");
 
-    const limit = Math.min(
-      Math.max(Number.isFinite(limitParam) ? limitParam : 200, 1),
-      500
-    );
+    const limit = Math.min(Math.max(Number.isInteger(limitParam) ? limitParam : 100, 1), 200);
+    if (search.length > 200 || action.length > 120 || managerId.length > 100 || (cursor && cursor.length > 100) || (actorType && !["ADMIN", "MANAGER", "USER"].includes(actorType))) {
+      return NextResponse.json({ error: "Invalid activity filter." }, { status: 400 });
+    }
 
     const where: any = {};
 
-    if (actorType && ["ADMIN", "MANAGER", "USER"].includes(actorType)) {
+    if (actorType) {
       where.actorType = actorType;
     }
 
@@ -71,6 +72,9 @@ export async function GET(request: Request) {
 
     const logs = await prisma.auditLog.findMany({
       where,
+      take: limit + 1,
+      cursor: cursor ? { id: cursor } : undefined,
+      skip: cursor ? 1 : undefined,
       include: {
         manager: {
           select: {
@@ -81,11 +85,18 @@ export async function GET(request: Request) {
           },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: limit,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     });
+
+    const hasMore = logs.length > limit;
+    if (hasMore) logs.pop();
+    const redactMetadata = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(redactMetadata);
+      if (!value || typeof value !== "object") return value;
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/(password|hash|secret|token|credential|database|db.?url|connection.?string|auth|proof|account.?details|api.?key|private.?key|session)/i.test(key))
+        .map(([key, item]) => [key, redactMetadata(item)]));
+    };
 
     return NextResponse.json({
       activities: logs.map((log) => ({
@@ -97,10 +108,11 @@ export async function GET(request: Request) {
         targetType: log.targetType,
         targetId: log.targetId,
         amount: log.amount === null ? null : log.amount.toString(),
-        metadata: log.metadata,
+        metadata: redactMetadata(log.metadata),
         createdAt: log.createdAt,
         manager: log.manager,
       })),
+      nextCursor: hasMore ? logs[logs.length - 1]?.id ?? null : null,
     });
   } catch (error) {
     console.error("ADMIN_ACTIVITY_GET_ERROR", error);

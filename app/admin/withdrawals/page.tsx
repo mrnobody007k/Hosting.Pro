@@ -85,15 +85,17 @@ export default function AdminWithdrawalsPage() {
   const [status, setStatus] = useState("ALL");
   const [manager, setManager] = useState("ALL");
   const [selected, setSelected] = useState<Withdrawal | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  async function loadWithdrawals() {
+  async function loadWithdrawals(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
-      const response = await fetch("/api/admin/withdrawals", {
-        cache: "no-store",
-      });
+      const params = new URLSearchParams({ limit: "100", search: search.trim(), status, managerId: manager });
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/admin/withdrawals?${params}`, { cache: "no-store" });
 
       const data = await response.json();
 
@@ -103,7 +105,8 @@ export default function AdminWithdrawalsPage() {
         );
       }
 
-      setWithdrawals(data.withdrawals || []);
+      setWithdrawals((current) => append ? [...current, ...(data.withdrawals || [])] : (data.withdrawals || []));
+      setNextCursor(data.nextCursor || null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -112,12 +115,14 @@ export default function AdminWithdrawalsPage() {
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
   useEffect(() => {
-    loadWithdrawals();
-  }, []);
+    const timer = window.setTimeout(() => { void loadWithdrawals(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, status, manager]);
 
   const managers = useMemo(() => {
     const map = new Map<string, string>();
@@ -220,7 +225,7 @@ export default function AdminWithdrawalsPage() {
           <button
             type="button"
             className="admin-button"
-            onClick={loadWithdrawals}
+            onClick={() => loadWithdrawals()}
             disabled={loading}
           >
             {loading ? "Refreshing..." : "Refresh"}
@@ -316,7 +321,7 @@ export default function AdminWithdrawalsPage() {
             <button
               type="button"
               className="admin-button"
-              onClick={loadWithdrawals}
+              onClick={() => loadWithdrawals()}
             >
               Try Again
             </button>
@@ -426,6 +431,7 @@ export default function AdminWithdrawalsPage() {
                   ))}
                 </tbody>
               </table>
+              {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => loadWithdrawals(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more withdrawals"}</button></div>}
             </div>
           </div>
         )}

@@ -68,7 +68,8 @@ export async function POST(req: Request) {
         )
         results.push({ userId: target.id, managerId: target.managerId, ok: true, ...result })
       } catch (e) {
-        results.push({ userId: target.id, managerId: target.managerId, ok: false, error: e instanceof Error ? e.message : 'Sync failed' })
+        console.error('ADMIN_SYNC_ITEM_ERROR', { userId: target.id, error: e })
+        results.push({ userId: target.id, managerId: target.managerId, ok: false, error: 'Sync failed. Please try again or contact support.' })
       }
     }
 

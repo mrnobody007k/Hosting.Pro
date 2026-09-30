@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Decimal } from "decimal.js";
+import Link from "next/link";
 import AdminShell from "../AdminShell";
 
 type Client = {
@@ -43,14 +44,18 @@ export default function ClientsPage() {
   const [status, setStatus] = useState("ALL");
   const [membership, setMembership] = useState("ALL");
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [syncResult, setSyncResult] = useState<{ userId: string; message: string } | null>(null);
 
-  async function loadClients() {
+  async function loadClients(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
-      const res = await fetch("/api/admin/clients", {
+      const url = new URLSearchParams({ limit: "100", search: search.trim(), managerId: manager, status, membership });
+      if (cursor) url.set("cursor", cursor);
+      const res = await fetch(`/api/admin/clients?${url}`, {
         cache: "no-store",
       });
 
@@ -60,13 +65,15 @@ export default function ClientsPage() {
         throw new Error(json?.error || "Failed to load clients");
       }
 
-      setClients(json.clients || []);
+      setClients((current) => append ? [...current, ...(json.clients || [])] : (json.clients || []));
+      setNextCursor(json.nextCursor || null);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load clients"
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
@@ -90,8 +97,9 @@ export default function ClientsPage() {
   }
 
   useEffect(() => {
-    loadClients();
-  }, []);
+    const timer = window.setTimeout(() => { void loadClients(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, manager, status, membership]);
 
   const managers = useMemo(() => {
     const map = new Map<string, string>();
@@ -165,7 +173,7 @@ export default function ClientsPage() {
           </div>
 
           <button
-            onClick={loadClients}
+            onClick={() => loadClients()}
             disabled={loading}
             style={{
               border: 0,
@@ -403,7 +411,7 @@ export default function ClientsPage() {
                     style={{ borderTop: "1px solid #eef2f7" }}
                   >
                     <td style={{ padding: "15px 16px" }}>
-                      <strong>{client.name}</strong>
+                      <Link href={`/admin/clients/${client.id}`} style={{ color: "#1d4ed8", fontWeight: 800, textDecoration: "none" }}>{client.name}</Link>
                       <div
                         style={{
                           color: "#64748b",
@@ -511,6 +519,7 @@ export default function ClientsPage() {
               </tbody>
             </table>
           </div>
+          {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button className="admin-button" onClick={() => loadClients(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more clients"}</button></div>}
         </div>
       </div>
     </AdminShell>

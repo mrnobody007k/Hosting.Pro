@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 
 type LoginRole = 'USER' | 'MANAGER' | 'ADMIN'
 
-export default function LoginForm({ role }: { role: LoginRole }) {
+export default function LoginForm({ role, accessToken }: { role: LoginRole; accessToken?: string }) {
   const router = useRouter()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
@@ -22,7 +22,7 @@ export default function LoginForm({ role }: { role: LoginRole }) {
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ identifier, password, expectedRole: role }),
+        body: JSON.stringify({ identifier, password, expectedRole: role, ...(accessToken ? { accessToken } : {}) }),
       })
       const data = await response.json()
       if (!response.ok) { setError(data.error || 'We could not sign you in. Check your details and try again.'); return }

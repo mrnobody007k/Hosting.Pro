@@ -9,6 +9,28 @@ import {
   validMoney,
 } from '@/lib/security'
 
+export async function GET(request: Request) {
+  try {
+    const session = await getSession()
+    if (!session || session.role !== 'USER' || !session.managerId) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+    const user = await prisma.user.findFirst({ where: { id: session.sub, managerId: session.managerId, status: 'ACTIVE', signupStatus: 'APPROVED', manager: { status: 'ACTIVE' } }, select: { id: true } })
+    if (!user) return NextResponse.json({ error: 'Your account is not available.' }, { status: 403 })
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    if (cursor && (cursor.length > 100 || !(await prisma.withdrawal.findFirst({ where: { id: cursor, userId: user.id, managerId: session.managerId }, select: { id: true } })))) {
+      return NextResponse.json({ error: 'Invalid withdrawal page cursor.' }, { status: 400 })
+    }
+    const withdrawals = await prisma.withdrawal.findMany({
+      where: { userId: user.id, managerId: session.managerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), take: 25,
+      select: { id: true, amount: true, method: true, accountDetails: true, reference: true, status: true, note: true, createdAt: true, processedAt: true },
+    })
+    return NextResponse.json({ withdrawals: withdrawals.map((item) => ({ ...item, amount: item.amount.toString() })), nextCursor: withdrawals.length === 25 ? withdrawals[withdrawals.length - 1].id : null })
+  } catch (error) {
+    console.error('USER_WITHDRAWALS_GET_ERROR', error)
+    return NextResponse.json({ error: 'Unable to load withdrawal history.' }, { status: 500 })
+  }
+}
+
 export async function POST(req: Request) {
   try {
     requireSameOrigin(req)

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import UserShell from "../UserShell"
 import { CustomerPageHeader, CustomerPageState, useCustomerOverview, money, customerStatus } from "../CustomerUI"
-import { Decimal } from "decimal.js"
 
 type Order = {
   id: string
@@ -24,9 +23,10 @@ type Order = {
 }
 
 export default function RevenuePage() {
-  const { data, loading, error, reload } = useCustomerOverview()
+  const { data, loading, error, reload } = useCustomerOverview({ includeFinancials: true })
   const user = data?.user
   const transactions = data?.transactions || []
+  const earnings = data?.earnings
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersLoading, setOrdersLoading] = useState(true)
 
@@ -46,17 +46,18 @@ export default function RevenuePage() {
     loadOrders()
   }, [])
 
-  // Calculate earnings from completed tasks
-  const taskEarnings = transactions
-    .filter((t) => t.type === "PROFIT")
-    .reduce((sum, t) => sum + Number(t.amount), 0)
+  const recentEarnings = transactions
+    .filter((item) => item.type === "PROFIT" || item.type === "WELCOME_BONUS")
+    .slice(0, 20)
+  const rerentedOrders = orders.filter((order) => order.status === "RE_RENTED" || order.status === "COMPLETED")
 
-  // Calculate re-rent earnings
-  const rerentEarnings = orders
-    .filter((o) => o.status === "RE_RENTED" || o.status === "COMPLETED")
-    .reduce((sum, o) => sum + Number(o.profit || 0), 0)
-
-  const totalEarnings = taskEarnings + rerentEarnings
+  function earningsLabel(item: (typeof transactions)[number]) {
+    if (item.type === "WELCOME_BONUS") return "Welcome Bonus"
+    if (item.note?.startsWith("Re-Rent profit")) return "Re-Rent Earnings"
+    if (item.note?.startsWith("Day 2")) return "Day 2 Task Earnings"
+    if (item.note?.startsWith("Day 3")) return "Day 3 Official Task Earnings"
+    return "Task Earnings"
+  }
 
   return <UserShell userName={user?.name || "Client"} membership={user?.membershipStatus?.replaceAll("_", " ")}>
     <CustomerPageHeader eyebrow="YOUR EARNINGS" title="Revenue" description="Track your task profits and re-rent income from Housing.pro bookings." />
@@ -66,23 +67,23 @@ export default function RevenuePage() {
       <section className="revenue-summary">
         <article className="revenue-card primary">
           <span>Total Earnings</span>
-          <strong>{money(totalEarnings)}</strong>
-          <small>Task profits + Re-Rent income</small>
+          <strong>{money(earnings?.total ?? "0")}</strong>
+          <small>Completed task and Re-Rent profit ledger credits</small>
         </article>
         <article className="revenue-card">
           <span>Task Profits</span>
-          <strong>{money(taskEarnings)}</strong>
+          <strong>{money(earnings?.taskProfit ?? "0")}</strong>
           <small>Day 2 (1.2%) + Day 3 (1.4%)</small>
         </article>
         <article className="revenue-card">
           <span>Re-Rent Income</span>
-          <strong>{money(rerentEarnings)}</strong>
-          <small>Re-Rent profit (1.2%)</small>
+          <strong>{money(earnings?.rerentProfit ?? "0")}</strong>
+          <small>Profit from completed Re-Rent activities</small>
         </article>
         <article className="revenue-card">
           <span>Completed Tasks</span>
           <strong>
-            {transactions.filter((t) => t.type === "PROFIT").length}
+            {earnings?.taskCount ?? 0}
           </strong>
           <small>Task profit entries recorded</small>
         </article>
@@ -92,39 +93,25 @@ export default function RevenuePage() {
         <h2>Task Profit Breakdown</h2>
         <div className="breakdown-grid">
           <div className="breakdown-item">
-            <div className="breakdown-label">Day 2 Morning (1.2%)</div>
-            <div className="breakdown-value">
-              {money(
-                transactions
-                  .filter((t) => t.type === "PROFIT" && t.note?.includes("Day 2"))
-                  .reduce((sum, t) => sum + Number(t.amount), 0)
-              )}
-            </div>
+            <div className="breakdown-label">Day 2 Tasks (1.2%)</div>
+            <div className="breakdown-value">{money(earnings?.day2TaskProfit ?? "0")}</div>
           </div>
           <div className="breakdown-item">
             <div className="breakdown-label">Day 3 Official (1.4%)</div>
-            <div className="breakdown-value">
-              {money(
-                transactions
-                  .filter((t) => t.type === "PROFIT" && t.note?.includes("Day 3"))
-                  .reduce((sum, t) => sum + Number(t.amount), 0)
-              )}
-            </div>
+            <div className="breakdown-value">{money(earnings?.day3TaskProfit ?? "0")}</div>
           </div>
         </div>
       </section>
 
       <section className="customer-surface customer-history revenue-transactions">
         <h2>Recent Earnings Activity</h2>
-        {transactions.length === 0 ? (
+        {recentEarnings.length === 0 ? (
           <CustomerPageState emptyTitle="No earnings yet" emptyText="Complete tasks and re-rent orders to see your earnings here." />
         ) : (
-          transactions
-            .filter((t) => t.type === "PROFIT" || t.type === "WELCOME_BONUS")
-            .slice(0, 20)
+          recentEarnings
             .map((item) => (
               <div className="customer-history-row" key={item.id}>
-                <span>{item.type === "WELCOME_BONUS" ? "Welcome Bonus" : "Task Profit"}</span>
+                <span>{earningsLabel(item)}</span>
                 <strong>{money(item.amount)}</strong>
                 <small>{new Date(item.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small>
                 {item.note && <small className="ref-tag">{item.note}</small>}
@@ -137,17 +124,16 @@ export default function RevenuePage() {
         <div style={{ padding: 20, textAlign: "center", color: "#64748b" }}>Loading re-rent data…</div>
       ) : (
         <section className="customer-surface customer-history revenue-rerents">
-          <h2>Re-Rent Earnings</h2>
-          {orders.length === 0 ? (
-            <CustomerPageState emptyTitle="No completed orders" emptyText="Re-Rent earnings appear when orders are re-rented." />
+          <h2>Re-Rented Bookings</h2>
+          {rerentedOrders.length === 0 ? (
+            <CustomerPageState emptyTitle="No re-rented bookings" emptyText="Completed Re-Rent bookings appear here. Their earnings are recorded once in the activity ledger above." />
           ) : (
-            orders
-              .filter((o) => o.status === "RE_RENTED" || o.status === "COMPLETED")
+            rerentedOrders
               .slice(0, 20)
               .map((order) => (
                 <div className="customer-history-row" key={order.id}>
                   <span>Re-Rent: {order.property?.title || order.orderCode}</span>
-                  <strong>{money(order.profit || 0)}</strong>
+                  <strong>Completed</strong>
                   <small>{order.rerentedAt ? new Date(order.rerentedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Completed"}</small>
                 </div>
               ))

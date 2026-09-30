@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Decimal } from "decimal.js"
 import UserShell from "../UserShell"
 import { CustomerPageHeader, CustomerPageState, money, customerStatus } from "../CustomerUI"
 
 function statusClass(status?: string) {
   const s = String(status || "").toUpperCase()
 
-  if (["ACTIVE", "APPROVED", "COMPLETED", "PAID", "OFFICIAL_MEMBER"].includes(s)) {
+  if (["ACTIVE", "APPROVED", "COMPLETED", "PAID", "OFFICIAL_MEMBER", "VERIFIED"].includes(s)) {
     return "hp-status hp-status-success"
   }
 
@@ -41,10 +40,13 @@ type Order = {
   rerentRequestedAt: string | null
   rerentedAt: string | null
   createdAt: string
+  tasks?: { id: string; type: string; status: string; dayNumber: number; assignedAt: string; submittedAt: string | null }[]
 }
+type AssignedTask = { id: string; type: string; title: string; status: string; dayNumber: number; assignedAt: string; submittedAt: string | null; completedAt?: string | null; profitAmount: string | number; order: { id: string; orderCode: string; status: string; rerentedAt: string | null; property: Order["property"] } | null }
 
 export default function RerentPage() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -52,10 +54,13 @@ export default function RerentPage() {
     try {
       setLoading(true)
       setError("")
-      const res = await fetch("/api/user/orders", { cache: "no-store" })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || "Unable to load orders")
+      const [res, taskResponse] = await Promise.all([fetch("/api/user/orders", { cache: "no-store" }), fetch("/api/user/tasks", { cache: "no-store" })])
+      if ([res, taskResponse].some((response) => response.status === 401)) { window.location.href = "/login"; return }
+      const [json, taskData] = await Promise.all([res.json(), taskResponse.json()])
+      if (!res.ok) throw new Error(json?.error || "Unable to load bookings")
+      if (!taskResponse.ok) throw new Error(taskData?.error || "Unable to load assigned activities")
       setOrders(json.orders || [])
+      setAssignedTasks(taskData.tasks || [])
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load orders")
     } finally {
@@ -65,25 +70,66 @@ export default function RerentPage() {
 
   useEffect(() => { load() }, [])
 
-  const activeOrders = orders.filter(o => o.status === "ACTIVE" && o.paymentStatus === "PAID")
-  const rerentPending = orders.filter(o => o.status === "RE_RENT_PENDING")
-  const rerented = orders.filter(o => o.status === "RE_RENTED" || o.status === "COMPLETED")
+  useEffect(() => {
+    const pendingTaskIds = assignedTasks.filter((task) => task.status === "VERIFIED").map((task) => task.id)
+    if (!pendingTaskIds.length) return
+
+    let stopped = false
+    const settle = async () => {
+      let completed = false
+      for (const taskId of pendingTaskIds) {
+        try {
+          const response = await fetch("/api/user/tasks/settle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId }),
+          })
+          if (!response.ok) continue
+          const result = await response.json()
+          completed ||= result.completed === true
+        } catch {
+          // Retry on the next interval if the network is temporarily unavailable.
+        }
+      }
+      if (completed && !stopped) await load()
+    }
+
+    let timer: number | undefined
+    const poll = async () => {
+      await settle()
+      if (!stopped) timer = window.setTimeout(() => { void poll() }, 30000)
+    }
+    timer = window.setTimeout(() => { void poll() }, 30000)
+    return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer) }
+  }, [assignedTasks])
+
+  const assignedOrderIds = new Set(assignedTasks.flatMap((task) => task.order ? [task.order.id] : []))
+  const activeOrders = orders.filter(o => o.status === "ACTIVE" && o.paymentStatus === "PAID" && !assignedOrderIds.has(o.id))
+  const taskOrders = assignedTasks.filter((task) => task.order).map((task) => ({
+    id: task.order!.id, orderCode: task.order!.orderCode, amount: "0", profit: "0", profitRate: "0",
+    status: task.order!.status, paymentStatus: "PAID", property: task.order!.property,
+    rerentRequestedAt: task.submittedAt, rerentedAt: task.order!.rerentedAt, createdAt: task.assignedAt,
+    tasks: [task],
+  } as Order))
+  const rerentPending = taskOrders.filter((order) => order.tasks?.some((task) => task.status !== "COMPLETED"))
+  const rerented = taskOrders.filter((order) => order.tasks?.some((task) => task.status === "COMPLETED"))
 
   return <UserShell>
-    <CustomerPageHeader eyebrow="RE-RENT CENTER" title="Re-Rent Your Properties" description="When a rental period ends, submit a Re-Rent request to re-list the property and earn additional profit." />
+    <CustomerPageHeader eyebrow="RE-RENT CENTER" title="Re-Rent Activities" description="Your manager assigns Re-Rent activities to eligible bookings. Complete an assigned activity from your Task Center; settlement is then processed after the configured delay." action={<button className="hp-user-btn hp-user-btn-secondary" type="button" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh status"}</button>} />
+    {error && !loading && <div role="alert" className="rerent-error">{error}</div>}
     <CustomerPageState loading={loading} error={error} retry={load} />
 
     {!loading && !error && <>
       <section className="rerent-stats">
         <article className="rerent-stat">
-          <span>Eligible for Re-Rent</span>
+          <span>Recent Bookings Awaiting Assignment</span>
           <strong>{activeOrders.length}</strong>
-          <small>Active orders ready for re-rent</small>
+          <small>Shown from your latest booking records</small>
         </article>
         <article className="rerent-stat">
           <span>Re-Rent Pending</span>
           <strong>{rerentPending.length}</strong>
-          <small>Awaiting processing</small>
+          <small>Assigned or awaiting settlement</small>
         </article>
         <article className="rerent-stat">
           <span>Completed Re-Rents</span>
@@ -94,8 +140,8 @@ export default function RerentPage() {
 
       {activeOrders.length > 0 && (
         <section className="rerent-section">
-          <h2>Available for Re-Rent</h2>
-          <p className="rerent-section-desc">These active orders have completed their rental period. Submit a Re-Rent request to re-list the property and earn 1.2% re-rent profit.</p>
+          <h2>Awaiting Manager Assignment</h2>
+          <p className="rerent-section-desc">These active, payment-confirmed bookings do not have a Re-Rent activity assigned yet. Your manager will assign the activity when it is ready; you cannot create a Re-Rent request directly.</p>
           <div className="rerent-grid">
             {activeOrders.map((order) => (
               <article className="rerent-card" key={order.id}>
@@ -113,15 +159,10 @@ export default function RerentPage() {
                   <div className="rerent-details">
                     <div><strong>Order:</strong> {order.orderCode}</div>
                     <div><strong>Original Amount:</strong> {money(order.amount)}</div>
-                    <div><strong>Re-Rent Profit Rate:</strong> 1.2%</div>
-                    <div><strong>Est. Re-Rent Profit:</strong> {money(new Decimal(String(order.amount)).mul(1.2).div(100))}</div>
                   </div>
                   <div className="rerent-actions">
                     <Link href={`/user/orders/${order.id}`} className="hp-user-btn hp-user-btn-secondary">View Details</Link>
-                    <form action="/api/user/tasks/rerent" method="POST">
-                      <input type="hidden" name="orderId" value={order.id} />
-                      <button className="hp-user-btn hp-user-btn-primary" type="submit">Request Re-Rent</button>
-                    </form>
+                    <Link href="/user/tasks" className="hp-user-btn hp-user-btn-primary">Task Center</Link>
                   </div>
                 </div>
               </article>
@@ -132,20 +173,35 @@ export default function RerentPage() {
 
       {rerentPending.length > 0 && (
         <section className="rerent-section">
-          <h2>Re-Rent Pending</h2>
-          <p className="rerent-section-desc">Your Re-Rent requests are being processed. You will be notified when complete.</p>
+          <h2>Assigned and Processing</h2>
+          <p className="rerent-section-desc">Submit your assigned activity for manager verification. Settlement occurs only after approval and the configured delay from submission.</p>
           <div className="rerent-list">
-            {rerentPending.map((order) => (
-              <div className="rerent-row" key={order.id}>
+            {rerentPending.map((order) => {
+              const task = order.tasks?.find(item => item.type === "RE_RENT")
+              const awaitingUser = task?.status === "PENDING" || task?.status === "IN_PROGRESS"
+              const stateText = awaitingUser && task?.dayNumber === 0
+                ? "Your existing Re-Rent request is ready to submit in the Task Center."
+                : awaitingUser
+                  ? "Your manager assigned an activity. Submit it in the Task Center for verification."
+                : task?.status === "SUBMITTED"
+                  ? "Your activity is awaiting manager verification. No profit is credited yet."
+                : task?.status === "VERIFIED"
+                  ? "Your activity is verified. Settlement will complete after the configured delay from submission."
+                : task?.status === "REJECTED"
+                  ? "Your activity was not approved; no profit was credited. Retry the activity in the Task Center."
+                  : "This booking is awaiting a Re-Rent assignment from your manager."
+
+              return <div className="rerent-row" key={order.id}>
                 <div>
                   <strong>{order.property?.title || order.orderCode}</strong>
-                  <div className="rerent-row-meta">Order {order.orderCode} · Requested {order.rerentRequestedAt ? new Date(order.rerentRequestedAt).toLocaleString() : "recently"}</div>
+                  <div className="rerent-row-meta">Order {order.orderCode} · {stateText}</div>
                 </div>
                 <span className={`rerent-status ${statusClass(order.status)}`}>
                   {customerStatus(order.status)}
                 </span>
+                {task && <Link href="/user/tasks" className="hp-user-btn hp-user-btn-secondary">Open Task Center</Link>}
               </div>
-            ))}
+            })}
           </div>
         </section>
       )}
@@ -170,8 +226,7 @@ export default function RerentPage() {
                   <h3>{order.property?.title || "Property"}</h3>
                   <div className="rerent-details">
                     <div><strong>Order:</strong> {order.orderCode}</div>
-                    <div><strong>Re-Rent Profit:</strong> {money(order.profit)}</div>
-                    <div><strong>Completed:</strong> {order.rerentedAt ? new Date(order.rerentedAt).toLocaleString() : "—"}</div>
+                    <div><strong>Completed:</strong> {order.tasks?.find((task) => task.type === "RE_RENT")?.submittedAt ? new Date(order.tasks.find((task) => task.type === "RE_RENT")!.submittedAt!).toLocaleString("en-IN") : "Settlement recorded"}</div>
                   </div>
                   <div className="rerent-actions">
                     <Link href={`/user/orders/${order.id}`} className="hp-user-btn hp-user-btn-secondary">View Details</Link>
@@ -187,7 +242,7 @@ export default function RerentPage() {
         <div className="rerent-empty">
           <div className="rerent-empty-icon">↻</div>
           <h3>No Re-Rent Activity</h3>
-          <p>When your rental orders complete, they will appear here for Re-Rent opportunities.</p>
+          <p>Eligible bookings wait for a Re-Rent activity assigned by your manager. Submitted activities update here when settlement completes.</p>
           <Link href="/user/properties" className="hp-user-btn hp-user-btn-primary">Browse Properties</Link>
         </div>
       )}
@@ -200,6 +255,7 @@ export default function RerentPage() {
         gap: 14px;
         margin-bottom: 24px;
       }
+      .rerent-notice,.rerent-error{padding:12px 15px;border-radius:10px;margin-bottom:14px;font-size:13px}.rerent-notice{background:#ecfdf5;color:#166534}.rerent-error{background:#fef2f2;color:#991b1b}
       .rerent-stat {
         background: #fff;
         border: 1px solid #e5e7eb;

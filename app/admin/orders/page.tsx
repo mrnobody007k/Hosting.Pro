@@ -167,6 +167,8 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -176,17 +178,14 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] =
     useState<Order | null>(null);
 
-  async function loadOrders() {
+  async function loadOrders(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
-      const response = await fetch(
-        "/api/admin/orders",
-        {
-          cache: "no-store",
-        }
-      );
+      const params = new URLSearchParams({ limit: "100", search: search.trim(), status, paymentStatus, managerId });
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
 
       const data = await response.json();
 
@@ -196,7 +195,8 @@ export default function OrdersPage() {
         );
       }
 
-      setOrders(data.orders || []);
+      setOrders((current) => append ? [...current, ...(data.orders || [])] : (data.orders || []));
+      setNextCursor(data.nextCursor || null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -205,12 +205,14 @@ export default function OrdersPage() {
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    const timer = window.setTimeout(() => { void loadOrders(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, status, paymentStatus, managerId]);
 
   const managers = useMemo(() => {
     const map = new Map<string, string>();
@@ -346,7 +348,7 @@ export default function OrdersPage() {
           </div>
 
           <button
-            onClick={loadOrders}
+            onClick={() => loadOrders()}
             disabled={loading}
             style={{
               border: 0,
@@ -1197,9 +1199,10 @@ export default function OrdersPage() {
                     }
                   )}
                 </tbody>
-              </table>
-            </div>
+            </table>
+          </div>
           )}
+          {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => loadOrders(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more orders"}</button></div>}
         </div>
 
         {/* ORDER DETAIL DRAWER */}

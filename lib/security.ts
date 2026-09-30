@@ -14,6 +14,34 @@ export class RequestSecurityError extends Error {
   }
 }
 
+/** Return the configured public origin after rejecting anything beyond an HTTPS origin. */
+export function getPublicAppOrigin() {
+  const configured = process.env.PUBLIC_APP_URL
+  if (configured === undefined) return undefined
+
+  const value = configured.trim()
+  try {
+    const url = new URL(value)
+    if (
+      url.protocol !== 'https:' ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      (url.pathname !== '' && url.pathname !== '/') ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error('Invalid public origin')
+    }
+    return url.origin
+  } catch {
+    throw new RequestSecurityError(
+      'Server origin configuration must be a valid HTTPS origin.',
+      500,
+    )
+  }
+}
+
 export async function readJson<T = any>(
   req: Request,
   maxBytes = DEFAULT_MAX_BODY_BYTES,
@@ -32,17 +60,34 @@ export async function readJson<T = any>(
     )
   }
 
-  const text = await req.text()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  const reader = req.body?.getReader()
 
-  if (
-    new TextEncoder().encode(text).byteLength >
-    maxBytes
-  ) {
-    throw new RequestSecurityError(
-      'Request body is too large.',
-      413,
-    )
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        totalBytes += value.byteLength
+        if (totalBytes > maxBytes) {
+          await reader.cancel().catch(() => undefined)
+          throw new RequestSecurityError('Request body is too large.', 413)
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
   }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const text = new TextDecoder().decode(bytes)
 
   if (!text.trim()) {
     return {} as T
@@ -90,23 +135,12 @@ export function requireSameOrigin(
     return
   }
 
-  const configuredOrigin =
-    process.env.PUBLIC_APP_URL?.trim()
+  const configuredOrigin = getPublicAppOrigin()
 
   let expectedOrigin: string
 
   if (configuredOrigin) {
-    try {
-      expectedOrigin =
-        new URL(
-          configuredOrigin,
-        ).origin
-    } catch {
-      throw new RequestSecurityError(
-        'Server origin configuration is invalid.',
-        500,
-      )
-    }
+    expectedOrigin = configuredOrigin
   } else {
     const host =
       req.headers.get('host')
@@ -355,4 +389,3 @@ export function handleRequestSecurityError(
 
   return null
 }
-

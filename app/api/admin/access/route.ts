@@ -1,7 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { clearSession } from "@/lib/auth";
 import { requireAdminAuth } from "@/lib/admin-auth"
 import { AdminPermission } from "@/lib/admin-permissions"
 import {
@@ -183,6 +183,8 @@ export async function PATCH(request: Request) {
         isolationLevel: "Serializable",
       },
     );
+
+    await clearSession();
 
     return NextResponse.json({
       success: true,

@@ -19,7 +19,7 @@ async function provisionSuperAdmin() {
       stdio: ['pipe', 'pipe', 'ignore']
     })
     
-    const envVars = JSON.parse(envOutput.toString().trim())
+    const envVars = JSON.parse(envOutput.trim())
     
     // Set environment variables
     for (const [key, value] of Object.entries(envVars)) {

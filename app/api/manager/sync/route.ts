@@ -33,7 +33,8 @@ export async function POST(req: Request) {
         )
         results.push({ userId: user.id, ok: true, ...result })
       } catch (e) {
-        results.push({ userId: user.id, ok: false, error: e instanceof Error ? e.message : 'Sync failed' })
+        console.error('MANAGER_CLIENT_SYNC_ITEM_ERROR', { userId: user.id, error: e })
+        results.push({ userId: user.id, ok: false, error: 'Sync failed. Please try again or contact support.' })
       }
     }
 

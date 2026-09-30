@@ -2,22 +2,7 @@ import { NextResponse } from 'next/server'
 import { Decimal } from 'decimal.js'
 import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
-
-function getClientDay(createdAt: Date, approvedAt: Date | null) {
-  const start = approvedAt || createdAt
-
-  const startDay = new Date(start)
-  startDay.setHours(0, 0, 0, 0)
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const diff = Math.floor(
-    (today.getTime() - startDay.getTime()) / 86400000,
-  )
-
-  return Math.max(1, diff + 1)
-}
+import { getClientDay } from '@/lib/client-day'
 
 export async function GET() {
   const session = await getSession()
@@ -37,8 +22,6 @@ export async function GET() {
       email: true,
       referralCode: true,
       status: true,
-      paymentAccountLabel: true,
-      paymentAccountDetails: true,
     },
   })
 
@@ -52,11 +35,19 @@ export async function GET() {
   const [
     users,
     pendingSignups,
-    deposits,
-    withdrawals,
     balanceAggregate,
     orderCount,
     pendingTaskCount,
+    userCounts,
+    profitAggregate,
+    depositLedger,
+    withdrawalLedger,
+    pendingVerificationCount,
+    completedOrderCount,
+    activePropertyCount,
+    pendingDepositCount,
+    pendingWithdrawalCount,
+    recentActivity,
   ] = await Promise.all([
     prisma.user.findMany({
       where: {
@@ -65,6 +56,7 @@ export async function GET() {
       orderBy: {
         createdAt: 'desc',
       },
+      take: 25,
       select: {
         id: true,
         name: true,
@@ -101,6 +93,7 @@ export async function GET() {
       orderBy: {
         createdAt: 'asc',
       },
+      take: 25,
       select: {
         id: true,
         name: true,
@@ -111,61 +104,6 @@ export async function GET() {
         signupStatus: true,
         membershipStatus: true,
         createdAt: true,
-      },
-    }),
-
-    prisma.deposit.findMany({
-      where: {
-        managerId: session.managerId,
-        status: 'PENDING',
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-      select: {
-        id: true,
-        amount: true,
-        reference: true,
-        proofUrl: true,
-        status: true,
-        note: true,
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    }),
-
-    prisma.withdrawal.findMany({
-      where: {
-        managerId: session.managerId,
-        status: {
-          in: ['PENDING', 'APPROVED'],
-        },
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-      select: {
-        id: true,
-        amount: true,
-        method: true,
-        accountDetails: true,
-        reference: true,
-        status: true,
-        note: true,
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
       },
     }),
 
@@ -194,43 +132,66 @@ export async function GET() {
       where: {
         managerId: session.managerId,
         status: {
-          in: ['PENDING', 'IN_PROGRESS', 'SUBMITTED'],
+          in: ['PENDING', 'IN_PROGRESS', 'SUBMITTED', 'VERIFIED'],
         },
       },
     }),
+    prisma.user.groupBy({ where: { managerId: session.managerId }, by: ['status', 'signupStatus', 'membershipStatus'], _count: { _all: true } }),
+    prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'PROFIT' }, _sum: { amount: true } }),
+    prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'DEPOSIT' }, _sum: { amount: true } }),
+    prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'WITHDRAWAL' }, _sum: { amount: true } }),
+    prisma.order.count({ where: { managerId: session.managerId, status: { in: ['PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED'] } } }),
+    prisma.order.count({ where: { managerId: session.managerId, status: { in: ['RE_RENTED', 'COMPLETED'] } } }),
+    prisma.property.count({ where: { managerId: session.managerId, status: 'ACTIVE' } }),
+    prisma.deposit.count({ where: { managerId: session.managerId, status: 'PENDING' } }),
+    prisma.withdrawal.count({ where: { managerId: session.managerId, status: { in: ['PENDING', 'APPROVED'] } } }),
+    prisma.auditLog.findMany({ where: { managerId: session.managerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 8, select: { id: true, action: true, targetType: true, amount: true, createdAt: true } }),
   ])
 
   const safeUsers = users.map((user) => ({
     ...user,
-    clientDay: getClientDay(user.createdAt, user.approvedAt),
+    clientDay: getClientDay(user.approvedAt, user.createdAt),
     availableBalance: new Decimal(user.wallet?.balance?.toString() || '0').sub(user.wallet?.reservedBalance?.toString() || '0').toString(),
   }))
 
   const safePendingSignups = pendingSignups.map((user) => ({
     ...user,
-    clientDay: getClientDay(user.createdAt, null),
+    clientDay: getClientDay(null, user.createdAt),
   }))
 
   const totalBalance = new Decimal(balanceAggregate._sum.balance?.toString() || '0')
   const reservedBalance = new Decimal(balanceAggregate._sum.reservedBalance?.toString() || '0')
+  const countUsers = (predicate: (row: { status: string; signupStatus: string; membershipStatus: string; _count: { _all: number } }) => boolean) => userCounts.filter(predicate).reduce((sum, row) => sum + row._count._all, 0)
+  const completedProfit = new Decimal(profitAggregate._sum.amount?.toString() || '0')
 
   return NextResponse.json({
     manager,
 
     stats: {
-      users: users.length,
-      newSignups: pendingSignups.length,
-      pendingD: deposits.length,
-      pendingW: withdrawals.length,
+      users: userCounts.reduce((sum, row) => sum + row._count._all, 0),
+      totalClients: userCounts.reduce((sum, row) => sum + row._count._all, 0),
+      newSignups: userCounts.filter((row) => row.signupStatus === 'PENDING').reduce((sum, row) => sum + row._count._all, 0),
+      pendingSignups: userCounts.filter((row) => row.signupStatus === 'PENDING').reduce((sum, row) => sum + row._count._all, 0),
+      pendingD: pendingDepositCount,
+      pendingW: pendingWithdrawalCount,
       balance: totalBalance.toString(),
       availableBalance: totalBalance.sub(reservedBalance).toString(),
       activeOrders: orderCount,
       pendingTasks: pendingTaskCount,
+      activeClients: countUsers((row) => row.status === 'ACTIVE' && row.signupStatus === 'APPROVED'),
+      officialMembers: countUsers((row) => row.membershipStatus === 'OFFICIAL_MEMBER'),
+      totalOrders: orderCount,
+      pendingOrders: pendingVerificationCount,
+      completedOrders: completedOrderCount,
+      totalProfit: completedProfit.toFixed(2),
+      totalDeposits: new Decimal(depositLedger._sum.amount?.toString() || '0').toFixed(2),
+      totalWithdrawals: new Decimal(withdrawalLedger._sum.amount?.toString() || '0').toFixed(2),
+      activeProperties: activePropertyCount,
     },
 
+    clients: safeUsers,
     users: safeUsers,
     pendingSignups: safePendingSignups,
-    deposits,
-    withdrawals,
+    recentActivity: recentActivity.map((row) => ({ ...row, amount: row.amount?.toString() ?? null })),
   })
 }

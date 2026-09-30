@@ -1,8 +1,10 @@
 "use client"
 
-import { FormEvent, useState } from "react"
+import { FormEvent, useCallback, useEffect, useState } from "react"
 import UserShell from "../UserShell"
 import { CustomerPageHeader, CustomerPageState, customerStatus, money, useCustomerOverview } from "../CustomerUI"
+
+type DepositRecord = { id: string; amount: string; reference: string | null; status: string; createdAt: string; processedAt?: string | null }
 
 export default function DepositsPage() {
   const { data, loading, error, reload } = useCustomerOverview()
@@ -12,7 +14,32 @@ export default function DepositsPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [actionError, setActionError] = useState("")
+  const [history, setHistory] = useState<DepositRecord[]>([])
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null)
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
+  const [historyError, setHistoryError] = useState("")
   const user = data?.user
+
+  const loadHistory = useCallback(async (append = false) => {
+    if (append) setHistoryLoadingMore(true); else setHistoryLoading(true)
+    setHistoryError("")
+    try {
+      const params = new URLSearchParams()
+      if (append && historyCursor) params.set("cursor", historyCursor)
+      const response = await fetch(`/api/user/deposits?${params}`, { cache: "no-store" })
+      if (response.status === 401) { window.location.href = "/login"; return }
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Unable to load deposit history.")
+      const page = Array.isArray(result.deposits) ? result.deposits : []
+      setHistory((current) => append ? [...current, ...page] : page)
+      setHistoryCursor(page.at(-1)?.id || null)
+      setHistoryNextCursor(result.nextCursor || null)
+    } catch (cause) { setHistoryError(cause instanceof Error ? cause.message : "Unable to load deposit history.") }
+    finally { setHistoryLoading(false); setHistoryLoadingMore(false) }
+  }, [historyCursor])
+  useEffect(() => { void loadHistory(false) }, [])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -28,7 +55,7 @@ export default function DepositsPage() {
       if (!response.ok) throw new Error(result.error || "Unable to submit your deposit request.")
       setMessage("Your deposit request was submitted. Its status will update here.")
       setAmount(""); setReference(""); setProofUrl("")
-      await reload()
+      await Promise.all([reload(), loadHistory(false)])
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : "Unable to submit your deposit request.")
     } finally { setBusy(false) }
@@ -52,7 +79,8 @@ export default function DepositsPage() {
       </div>
       <section className="customer-surface customer-history">
         <h2>Deposit history</h2>
-        {(data?.deposits || []).length === 0 ? <CustomerPageState emptyTitle="No deposits yet" emptyText="Submitted deposit requests will appear here." /> : data?.deposits?.map((item) => <div className="customer-history-row" key={item.id}><span>{money(item.amount)}</span><b className="customer-status-pill">{customerStatus(item.status)}</b><small>{new Date(item.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div>)}
+        {historyLoading ? <CustomerPageState loading /> : historyError ? <CustomerPageState error={historyError} retry={() => void loadHistory(false)} /> : history.length === 0 ? <CustomerPageState emptyTitle="No deposits yet" emptyText="Submitted deposit requests will appear here." /> : history.map((item) => <div className="customer-history-row" key={item.id}><span>{money(item.amount)}{item.reference ? <small className="deposit-history-reference">Reference: {item.reference}</small> : null}</span><b className="customer-status-pill">{customerStatus(item.status)}</b><small>{new Date(item.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div>)}
+        {historyNextCursor && <div className="customer-load-more"><button className="customer-primary-button" onClick={() => void loadHistory(true)} disabled={historyLoadingMore}>{historyLoadingMore ? "Loading…" : "Load older deposits"}</button></div>}
       </section>
     </>}
   </UserShell>

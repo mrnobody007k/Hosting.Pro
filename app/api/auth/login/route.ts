@@ -2,6 +2,7 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { createSession } from '@/lib/auth'
+import { matchesAccessToken, storeAccessToken } from '@/lib/access-token'
 import {
   getClientIp,
   handleRequestSecurityError,
@@ -24,6 +25,7 @@ export async function POST(req: Request) {
         email?: unknown
         password?: unknown
         expectedRole?: unknown
+        accessToken?: unknown
       }>(
         req,
         16 * 1024,
@@ -39,8 +41,22 @@ export async function POST(req: Request) {
       body?.password || '',
     )
     const expectedRole = body?.expectedRole
+    let loginAccessSetting: { id: string; customerLoginAccessToken: string | null; managerLoginAccessToken: string | null } | null = null
     if (!expectedRole || !['USER', 'MANAGER', 'ADMIN'].includes(String(expectedRole))) {
       return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
+    }
+
+    if (expectedRole === 'USER' || expectedRole === 'MANAGER') {
+      loginAccessSetting = await prisma.platformSetting.findFirst({
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, customerLoginAccessToken: true, managerLoginAccessToken: true },
+      })
+      const requiredToken = expectedRole === 'USER'
+        ? loginAccessSetting?.customerLoginAccessToken
+        : loginAccessSetting?.managerLoginAccessToken
+      if (!matchesAccessToken(body.accessToken, requiredToken)) {
+        return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
+      }
     }
 
     if (
@@ -219,7 +235,21 @@ export async function POST(req: Request) {
       sub: account.id,
       role: account.role,
       ...(account.managerId ? { managerId: account.managerId } : {}),
-    })
+    }, account.passwordHash)
+
+    if ((expectedRole === 'USER' || expectedRole === 'MANAGER') && loginAccessSetting) {
+      const legacyToken = expectedRole === 'USER'
+        ? loginAccessSetting.customerLoginAccessToken
+        : loginAccessSetting.managerLoginAccessToken
+      if (legacyToken && !legacyToken.startsWith('sha256:')) {
+        await prisma.platformSetting.updateMany({
+          where: { id: loginAccessSetting.id, ...(expectedRole === 'USER' ? { customerLoginAccessToken: legacyToken } : { managerLoginAccessToken: legacyToken }) },
+          data: expectedRole === 'USER'
+            ? { customerLoginAccessToken: storeAccessToken(legacyToken) }
+            : { managerLoginAccessToken: storeAccessToken(legacyToken) },
+        })
+      }
+    }
 
     return NextResponse.json({
       ok: true,

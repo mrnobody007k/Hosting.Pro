@@ -104,6 +104,7 @@ export async function POST(req: Request) {
                 'PENDING',
                 'IN_PROGRESS',
                 'SUBMITTED',
+                'VERIFIED',
               ],
             },
           },
@@ -162,7 +163,7 @@ export async function POST(req: Request) {
             type: 'RE_RENT',
             title: 'Re-Rent Property',
             description:
-              'Open the property link, complete the re-rent task, then request successful completion.',
+              'Open the property link, complete this assigned activity, then submit it for settlement after the configured processing delay.',
             propertyUrl:
               order.property?.propertyUrl || null,
             dayNumber: 1,

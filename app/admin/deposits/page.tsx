@@ -84,15 +84,17 @@ export default function AdminDepositsPage() {
   const [status, setStatus] = useState("ALL");
   const [manager, setManager] = useState("ALL");
   const [selected, setSelected] = useState<Deposit | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  async function loadDeposits() {
+  async function loadDeposits(cursor?: string, append = false) {
     try {
-      setLoading(true);
+      if (append) setLoadingMore(true); else setLoading(true);
       setError("");
 
-      const response = await fetch("/api/admin/deposits", {
-        cache: "no-store",
-      });
+      const params = new URLSearchParams({ limit: "100", search: search.trim(), status, managerId: manager });
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/admin/deposits?${params}`, { cache: "no-store" });
 
       const data = await response.json();
 
@@ -100,7 +102,8 @@ export default function AdminDepositsPage() {
         throw new Error(data.error || "Unable to load deposits.");
       }
 
-      setDeposits(data.deposits || []);
+      setDeposits((current) => append ? [...current, ...(data.deposits || [])] : (data.deposits || []));
+      setNextCursor(data.nextCursor || null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -109,12 +112,14 @@ export default function AdminDepositsPage() {
       );
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }
 
   useEffect(() => {
-    loadDeposits();
-  }, []);
+    const timer = window.setTimeout(() => { void loadDeposits(); }, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, status, manager]);
 
   const managers = useMemo(() => {
     const map = new Map<string, string>();
@@ -206,7 +211,7 @@ export default function AdminDepositsPage() {
           <button
             type="button"
             className="admin-button"
-            onClick={loadDeposits}
+            onClick={() => loadDeposits()}
             disabled={loading}
           >
             {loading ? "Refreshing..." : "Refresh"}
@@ -293,7 +298,7 @@ export default function AdminDepositsPage() {
             <button
               type="button"
               className="admin-button"
-              onClick={loadDeposits}
+              onClick={() => loadDeposits()}
             >
               Try Again
             </button>
@@ -388,6 +393,7 @@ export default function AdminDepositsPage() {
                   ))}
                 </tbody>
               </table>
+              {nextCursor && <div style={{ padding: 16, textAlign: "center" }}><button onClick={() => loadDeposits(nextCursor, true)} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more deposits"}</button></div>}
             </div>
           </div>
         )}

@@ -9,7 +9,7 @@ import {
   handleRequestSecurityError,
 } from '@/lib/security'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getSession()
 
@@ -29,10 +29,36 @@ export async function GET() {
       return NextResponse.json({ error: 'Your account setup is still in progress.' }, { status: 403 })
     }
 
+    const params = new URL(request.url).searchParams
+    const cursor = params.get('cursor')
+    const query = (params.get('q') || '').trim().slice(0, 100)
+    const status = params.get('status')
+    const paymentStatus = params.get('paymentStatus')
+    const validOrderStatuses = ['ALL', 'PENDING', 'COMPLETED', 'RE_RENT', 'PAYMENT_PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'ACTIVE', 'RE_RENT_PENDING', 'RE_RENTED', 'CANCELLED']
+    const validPaymentStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'PAID']
+    if ((status && status !== 'ALL' && !validOrderStatuses.includes(status)) || (paymentStatus && paymentStatus !== 'ALL' && !validPaymentStatuses.includes(paymentStatus))) {
+      return NextResponse.json({ error: 'Invalid booking filter.' }, { status: 400 })
+    }
+    if (cursor && (cursor.length > 100 || !(await prisma.order.findFirst({ where: { id: cursor, userId: session.sub, managerId: session.managerId }, select: { id: true } })))) {
+      return NextResponse.json({ error: 'Invalid booking page cursor.' }, { status: 400 })
+    }
     const orders = await prisma.order.findMany({
       where: {
         userId: session.sub,
         managerId: session.managerId,
+        ...(status === 'PENDING' ? { status: { in: ['PAYMENT_PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED'] as never[] } } : {}),
+        ...(status === 'COMPLETED' ? { status: { in: ['RE_RENTED', 'COMPLETED'] as never[] } } : {}),
+        ...(status === 'RE_RENT' ? { OR: [
+          { status: { in: ['RE_RENT_PENDING', 'RE_RENTED'] as never[] } },
+          { tasks: { some: { type: 'RE_RENT' } } },
+        ] } : {}),
+        ...(status && !['ALL', 'PENDING', 'COMPLETED', 'RE_RENT'].includes(status) ? { status: status as never } : {}),
+        ...(paymentStatus && paymentStatus !== 'ALL' ? { paymentStatus: paymentStatus as never } : {}),
+        ...(query ? { AND: [{ OR: [
+          { orderCode: { contains: query, mode: 'insensitive' as const } },
+          { property: { title: { contains: query, mode: 'insensitive' as const } } },
+          { property: { location: { contains: query, mode: 'insensitive' as const } } },
+        ] }] } : {}),
       },
       select: {
         id: true,
@@ -66,6 +92,7 @@ export async function GET() {
           orderBy: {
             createdAt: 'desc',
           },
+          take: 10,
           select: {
             id: true,
             type: true,
@@ -84,11 +111,12 @@ export async function GET() {
           },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: 25,
     })
 
+    const nextCursor = orders.length === 25 ? orders[orders.length - 1].id : null
     return NextResponse.json({
       orders: orders.map((order) => ({
         ...order,
@@ -101,6 +129,7 @@ export async function GET() {
           profitAmount: task.profitAmount.toString(),
         })),
       })),
+      nextCursor,
     })
   } catch (error) {
     console.error('USER_ORDERS_GET_ERROR', error)
@@ -129,7 +158,13 @@ export async function POST(req: Request) {
       )
     }
 
-    const body = await readJson<{ propertyId?: unknown; amount?: unknown }>(req)
+    const body = await readJson<{ propertyId?: unknown; amount?: unknown; quantity?: unknown }>(req)
+
+    // Orders represent one property booking. Never trust a caller supplied
+    // quantity, even though the schema stores a single booking per row.
+    if (body.quantity !== undefined && body.quantity !== 1 && body.quantity !== '1') {
+      return NextResponse.json({ error: 'Each booking must have a quantity of exactly 1.' }, { status: 400 })
+    }
 
     const propertyId = String(body.propertyId || '').trim()
 

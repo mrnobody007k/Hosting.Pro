@@ -15,8 +15,19 @@ export async function GET(req: Request) {
     const status = searchParams.get('status') || 'ALL'
     const type = searchParams.get('type') || 'ALL'
     const managerId = searchParams.get('managerId') || 'ALL'
-    const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 500)
+    const requestedLimit = Number(searchParams.get('limit') || '100')
+    const limit = Math.min(Math.max(Number.isInteger(requestedLimit) ? requestedLimit : 100, 1), 500)
     const cursor = searchParams.get('cursor') || undefined
+
+    if ((search && search.length > 200) || (cursor && cursor.length > 100) || (managerId !== 'ALL' && managerId.length > 100)) {
+      return NextResponse.json({ error: 'Invalid task filter.' }, { status: 400 })
+    }
+
+    const validStatuses = ['PENDING', 'IN_PROGRESS', 'SUBMITTED', 'VERIFIED', 'COMPLETED', 'REJECTED']
+    const validTypes = ['DAY_2_MORNING', 'DAY_2_AFTERNOON', 'DAY_3_OFFICIAL', 'RE_RENT']
+    if ((status !== 'ALL' && !validStatuses.includes(status)) || (type !== 'ALL' && !validTypes.includes(type))) {
+      return NextResponse.json({ error: 'Invalid task status or type.' }, { status: 400 })
+    }
 
     const where: Record<string, unknown> = {}
 
@@ -104,6 +115,7 @@ export async function GET(req: Request) {
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
+      skip: cursor ? 1 : undefined,
     })
 
     let nextCursor: string | null = null

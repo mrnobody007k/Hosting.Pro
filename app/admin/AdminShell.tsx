@@ -78,21 +78,21 @@ export default function AdminShell({
 
   if (loading) {
     return (
-      <div className="admin-shell" style={{ minHeight: "100vh", display: "flex" }}>
-        <aside className="admin-sidebar" style={{ width: 250, minHeight: "100vh", background: "#111827", padding: "22px 14px" }}>
-          <div className="admin-brand" style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 10px 26px", borderBottom: "1px solid rgba(255,255,255,.1)" }}>
-            <div className="admin-logo" style={{ width: 40, height: 40, borderRadius: 10, display: "grid", placeItems: "center", background: "#fff", color: "#111827", fontSize: 22, fontWeight: 900 }}>A</div>
-            <div><strong>Housing.pro</strong><span style={{ display: "block", marginTop: 3, fontSize: 11, color: "#9ca3af" }}>Housing.pro · Admin Center</span></div>
+      <div className="hp-admin" style={{ minHeight: "100vh", display: "flex" }}>
+        <aside className="hp-sidebar" style={{ width: 258, minHeight: "100vh", background: "#101827", padding: "22px 14px" }}>
+          <div className="hp-brand" style={{ display: "flex", alignItems: "center", gap: 11, padding: "4px 10px 24px" }}>
+            <div className="hp-logo-mark" style={{ width: 38, height: 38, borderRadius: 11, display: "grid", placeItems: "center", background: "linear-gradient(135deg, #2563eb, #7c3aed)", color: "white", fontSize: 19, fontWeight: 800 }}>H</div>
+            <div><div className="hp-brand-name" style={{ color: "white", fontSize: 17, fontWeight: 800 }}>Housing.pro</div><div className="hp-brand-sub" style={{ color: "#718096", fontSize: 9, fontWeight: 700, letterSpacing: "1.2px", marginTop: 2 }}>Housing.pro · Admin Center</div></div>
           </div>
-          <nav className="admin-nav" style={{ display: "grid", gap: 5, marginTop: 22 }}>
+          <nav className="hp-shell-nav" style={{ display: "grid", gap: 5, marginTop: 22 }}>
             <div style={{ padding: "12px 13px", color: "#94a3b8" }}>Loading...</div>
           </nav>
         </aside>
-        <div className="admin-main" style={{ width: "calc(100% - 250px)", marginLeft: 250, minHeight: "100vh" }}>
-          <header className="admin-header" style={{ height: 78, padding: "0 30px", background: "#fff", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div><span className="admin-header-kicker" style={{ display: "block", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Administration</span><h1>Housing.pro Admin Center</h1></div>
+        <div className="hp-main" style={{ width: "calc(100% - 258px)", marginLeft: 258, minHeight: "100vh" }}>
+          <header className="hp-header" style={{ height: 76, padding: "0 32px", background: "#fff", borderBottom: "1px solid #e7ebf2", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div><span className="hp-breadcrumb" style={{ display: "block", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Administration</span><h1>Housing.pro Admin Center</h1></div>
           </header>
-          <div className="admin-content" style={{ padding: 30, maxWidth: 1600 }}>{children}</div>
+          <div className="hp-content" style={{ padding: 30, maxWidth: 1600 }}>{children}</div>
         </div>
       </div>
     );
@@ -105,17 +105,19 @@ export default function AdminShell({
   const visibleSuperItems = superAdminOnlyItems.filter(item => hasPermission(permissions, adminType, item.permission));
 
   return (
-    <div className="admin-shell">
-      <aside className="admin-sidebar">
-        <div className="admin-brand">
-          <div className="admin-logo">A</div>
+    <div className="hp-admin">
+      <aside className="hp-sidebar">
+        <div className="hp-brand">
+          <div className="hp-logo-mark">H</div>
           <div>
-            <strong>Housing.pro</strong>
-            <span>Housing.pro · Admin Center</span>
+            <div className="hp-brand-name">Housing.pro</div>
+            <div className="hp-brand-sub">Housing.pro · Admin Center</div>
           </div>
         </div>
 
-        <nav className="admin-nav">
+        <div className="hp-nav-label">MAIN MENU</div>
+
+        <nav className="hp-shell-nav">
           {visibleItems.map((item) => {
             const active =
               item.href === "/admin"
@@ -126,9 +128,9 @@ export default function AdminShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className={active ? "admin-nav-item active" : "admin-nav-item"}
+                className={`hp-shell-nav-item ${active ? "active" : ""}`}
               >
-                <span className="admin-nav-icon">{navGlyph(item.label)}</span>{item.label}
+                <span className="hp-shell-nav-icon">{navGlyph(item.label)}</span>{item.label}
               </Link>
             );
           })}
@@ -139,40 +141,54 @@ export default function AdminShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className={active ? "admin-nav-item active" : "admin-nav-item"}
+                className={`hp-shell-nav-item ${active ? "active" : ""}`}
               >
-                <span className="admin-nav-icon">{navGlyph(item.label)}</span>{item.label}
+                <span className="hp-shell-nav-icon">{navGlyph(item.label)}</span>{item.label}
               </Link>
             );
           })}
         </nav>
 
-        <div className="admin-tier-card">
-          <div className="admin-tier-heading">3-Tier Platform</div>
-          <div className="admin-tier-item active"><b>01</b><span>Admin Control</span></div>
-          <div className="admin-tier-item"><b>02</b><span>Manager Workspace</span></div>
-          <div className="admin-tier-item"><b>03</b><span>User Marketplace</span></div>
+        <div className="hp-tier-card">
+          <div className="hp-tier-heading">3-Tier Platform</div>
+          <div className="hp-tier-item active"><b>01</b><span>Admin Control</span></div>
+          <div className="hp-tier-item"><b>02</b><span>Manager Workspace</span></div>
+          <div className="hp-tier-item"><b>03</b><span>User Marketplace</span></div>
         </div>
 
-        <div className="admin-sidebar-footer">
-          <span>System Status</span>
-          <strong>Operational</strong>
+        <div className="hp-sidebar-bottom">
+          <div className="hp-secure-box">
+            <div className="hp-secure-icon">✓</div>
+            <div>
+              <strong>{adminInfo?.name || "Administrator"}</strong>
+              <span>{adminType === "SUPER_ADMIN" ? "Super Admin" : "Staff Admin"} · {adminInfo?.status || "ACTIVE"}</span>
+            </div>
+          </div>
+
+          <form action="/api/auth/logout" method="post">
+            <button className="hp-logout">
+              <span>↪</span>
+              Logout
+            </button>
+          </form>
         </div>
       </aside>
 
-      <div className="admin-main">
-        <header className="admin-header">
+      <div className="hp-main">
+        <header className="hp-header">
           <div>
-            <span className="admin-header-kicker">Administration</span>
+            <div className="hp-breadcrumb">
+              Admin <span>/</span> {pathname === "/admin" ? "Dashboard" : pathname.split("/").filter(Boolean).slice(-1)[0]?.replaceAll("-", " ") || "Admin"}
+            </div>
             <h1>Housing.pro Admin Center</h1>
           </div>
 
-          <Link href="/admin" className="admin-home-button">
+          <Link href="/admin" className="hp-header-btn">
             Dashboard
           </Link>
         </header>
 
-        <div className="admin-content">
+        <div className="hp-content">
           {children}
         </div>
       </div>
@@ -185,147 +201,255 @@ export default function AdminShell({
         body {
           margin: 0;
           background: #f5f7fb;
-          color: #111827;
-          font-family: Arial, Helvetica, sans-serif;
+          color: #172033;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        .admin-shell {
+        .hp-admin {
           min-height: 100vh;
           display: flex;
           background: #f5f7fb;
+          color: #172033;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        .admin-sidebar {
-          width: 250px;
+        .hp-sidebar {
+          width: 258px;
           min-height: 100vh;
-          background: #111827;
-          color: #fff;
+          background: #101827;
+          color: #cbd5e1;
           padding: 22px 14px;
-          display: flex;
-          flex-direction: column;
           position: fixed;
           left: 0;
           top: 0;
           bottom: 0;
+          display: flex;
+          flex-direction: column;
+          z-index: 20;
         }
 
-        .admin-brand {
+        .hp-brand {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 4px 10px 26px;
-          border-bottom: 1px solid rgba(255,255,255,.1);
+          gap: 11px;
+          padding: 4px 10px 24px;
         }
 
-        .admin-logo {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
+        .hp-logo-mark {
+          width: 38px;
+          height: 38px;
+          border-radius: 11px;
+          background: linear-gradient(135deg, #2563eb, #7c3aed);
+          color: white;
           display: grid;
           place-items: center;
-          background: #fff;
-          color: #111827;
-          font-size: 22px;
-          font-weight: 900;
+          font-weight: 800;
+          font-size: 19px;
+          box-shadow: 0 8px 22px rgba(37, 99, 235, .28);
         }
 
-        .admin-brand strong {
-          display: block;
+        .hp-brand-name {
+          color: white;
+          font-size: 17px;
+          font-weight: 800;
+          letter-spacing: -.3px;
+        }
+
+        .hp-brand-sub {
+          color: #718096;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 1.2px;
+          margin-top: 2px;
+        }
+
+        .hp-sidebar-search {
+          height: 40px;
+          background: #182234;
+          border: 1px solid #263246;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 11px;
+          margin: 0 4px 22px;
+        }
+
+        .hp-sidebar-search span {
+          color: #718096;
           font-size: 18px;
         }
 
-        .admin-brand span {
-          display: block;
-          margin-top: 3px;
-          font-size: 11px;
-          color: #9ca3af;
+        .hp-sidebar-search input {
+          width: 100%;
+          border: 0;
+          outline: 0;
+          background: transparent;
+          color: white;
+          font-size: 12px;
         }
 
-        .admin-nav {
+        .hp-nav-label {
+          font-size: 9px;
+          color: #5f6c80;
+          font-weight: 800;
+          letter-spacing: 1.2px;
+          padding: 0 12px 8px;
+        }
+
+        .hp-nav-space {
+          margin-top: 19px;
+        }
+
+        .hp-shell-nav {
           display: grid;
           gap: 5px;
           margin-top: 22px;
         }
 
-        .admin-nav-item {
+        .hp-shell-nav-item {
           display: block;
           padding: 12px 13px;
           border-radius: 9px;
-          color: #cbd5e1;
+          color: #9eabc0;
           text-decoration: none;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 600;
           transition: .15s ease;
         }
 
-        .admin-nav-item:hover {
-          background: rgba(255,255,255,.08);
-          color: #fff;
+        .hp-shell-nav-item:hover {
+          background: #182234;
+          color: white;
         }
 
-        .admin-nav-item.active {
-          background: #fff;
-          color: #111827;
+        .hp-shell-nav-item.active {
+          background: linear-gradient(90deg, #1d4ed8, #2563eb);
+          color: white;
+          box-shadow: 0 7px 18px rgba(37, 99, 235, .18);
         }
 
-
-        .admin-nav-icon {
-          width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center;
-          border-radius: 8px; background: #182234; color: #9fb0c8; font-size: 12px; font-weight: 800;
+        .hp-shell-nav-icon {
+          width: 19px;
+          text-align: center;
+          font-size: 16px;
+          opacity: .95;
         }
-        .admin-nav-item.active .admin-nav-icon { background: #eef4ff; color: #1d4ed8; }
-        .admin-tier-card { margin: 14px 4px 12px; padding: 11px; border: 1px solid #263246; border-radius: 12px; background: #141e2e; }
-        .admin-tier-heading { margin: 0 5px 8px; color: #718096; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-        .admin-tier-item { display: flex; align-items: center; gap: 8px; padding: 7px 5px; border-radius: 8px; color: #8f9db1; font-size: 10px; font-weight: 700; }
-        .admin-tier-item b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; background: #1c2739; color: #9fb0c8; font-size: 9px; }
-        .admin-tier-item.active { background: rgba(37,99,235,.15); color: #eef4ff; }
-        .admin-tier-item.active b { background: #2563eb; color: #fff; }
 
-        .admin-sidebar-footer {
+        .hp-tier-card {
+          margin: 12px 4px 10px;
+          padding: 11px;
+          border: 1px solid #263246;
+          border-radius: 13px;
+          background: linear-gradient(180deg,#141e2e,#111a29);
+        }
+        .hp-tier-heading { margin: 0 5px 8px; color: #718096; font-size: 9px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+        .hp-tier-item { display:flex; align-items:center; gap:8px; padding:7px 5px; border-radius:8px; color:#8996aa; font-size:10px; font-weight:700; }
+        .hp-tier-item b { width:22px; height:22px; display:grid; place-items:center; border-radius:6px; background:#1c2739; color:#aebbd0; font-size:9px; }
+        .hp-tier-item.active { background:rgba(37,99,235,.15); color:#eef4ff; }
+        .hp-tier-item.active b { background:#2563eb; color:#fff; }
+
+        .hp-sidebar-bottom {
           margin-top: auto;
-          padding: 15px 12px;
-          border-top: 1px solid rgba(255,255,255,.1);
-          font-size: 11px;
-          color: #9ca3af;
         }
 
-        .admin-sidebar-footer strong {
+        .hp-secure-box {
+          margin: 8px 4px 14px;
+          padding: 11px;
+          border: 1px solid #263246;
+          border-radius: 10px;
+          background: #141e2e;
+          display: flex;
+          gap: 9px;
+          align-items: center;
+        }
+
+        .hp-secure-icon {
+          width: 27px;
+          height: 27px;
+          border-radius: 50%;
+          background: #123c2d;
+          color: #4ade80;
+          display: grid;
+          place-items: center;
+          font-size: 13px;
+        }
+
+        .hp-secure-box strong,
+        .hp-secure-box span {
           display: block;
-          color: #86efac;
-          margin-top: 4px;
         }
 
-        .admin-main {
-          width: calc(100% - 250px);
-          margin-left: 250px;
+        .hp-secure-box strong {
+          color: #dbe5f3;
+          font-size: 11px;
+        }
+
+        .hp-secure-box span {
+          color: #65748a;
+          font-size: 9px;
+          margin-top: 2px;
+        }
+
+        .hp-logout {
+          width: 100%;
+          height: 40px;
+          border: 0;
+          border-radius: 9px;
+          background: #182234;
+          color: #aab5c5;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 12px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 0 13px;
+        }
+
+        .hp-logout:hover {
+          background: #202c40;
+          color: white;
+        }
+
+        .hp-main {
+          margin-left: 258px;
+          width: calc(100% - 258px);
+          min-width: 0;
           min-height: 100vh;
         }
 
-        .admin-header {
-          height: 78px;
-          padding: 0 30px;
-          background: #fff;
-          border-bottom: 1px solid #e5e7eb;
+        .hp-header {
+          height: 76px;
+          background: white;
+          border-bottom: 1px solid #e7ebf2;
           display: flex;
           align-items: center;
           justify-content: space-between;
+          padding: 0 32px;
+          position: sticky;
+          top: 0;
+          z-index: 10;
         }
 
-        .admin-header-kicker {
-          display: block;
-          color: #64748b;
+        .hp-breadcrumb {
+          color: #8a96a8;
           font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: .08em;
           margin-bottom: 4px;
         }
 
-        .admin-header h1 {
-          margin: 0;
-          font-size: 19px;
+        .hp-breadcrumb span {
+          margin: 0 7px;
+          color: #c0c7d2;
         }
 
-        .admin-home-button {
+        .hp-header h1 {
+          margin: 0;
+          font-size: 17px;
+          letter-spacing: -.3px;
+        }
+
+        .hp-header-btn {
           text-decoration: none;
           background: #111827;
           color: #fff;
@@ -335,24 +459,25 @@ export default function AdminShell({
           font-weight: 700;
         }
 
-        .admin-content {
-          padding: 30px;
+        .hp-content {
+          padding: 30px 32px 20px;
           max-width: 1600px;
+          margin: 0 auto;
         }
 
-        .admin-page-title {
+        .hp-page-title {
           margin: 0;
           font-size: 28px;
           font-weight: 800;
         }
 
-        .admin-page-subtitle {
+        .hp-page-subtitle {
           margin: 7px 0 0;
           color: #64748b;
           font-size: 14px;
         }
 
-        .admin-card {
+        .hp-card {
           background: #fff;
           border: 1px solid #e5e7eb;
           border-radius: 14px;
@@ -360,49 +485,102 @@ export default function AdminShell({
           box-shadow: 0 5px 20px rgba(15,23,42,.04);
         }
 
+        .hp-admin .admin-page-title, .hp-admin h2.admin-page-title {
+          margin: 0; color: #172033; font-size: clamp(23px, 3vw, 30px); line-height: 1.2; letter-spacing: -.035em;
+        }
+        .hp-admin .admin-page-subtitle { margin: 7px 0 0; color: #64748b; font-size: 14px; line-height: 1.55; }
+        .hp-admin .admin-card {
+          min-width: 0; background: #fff; border: 1px solid #e4e9f1; border-radius: 14px;
+          padding: 20px; box-shadow: 0 6px 22px rgba(16,24,40,.045);
+        }
+        .hp-admin input, .hp-admin select, .hp-admin textarea {
+          max-width: 100%; color: #172033; font: inherit;
+        }
+        .hp-admin button { font: inherit; }
+        .hp-admin table { width: 100%; border-collapse: collapse; }
+        .hp-admin th { background: #f8fafc; color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: .045em; text-align: left; }
+        .hp-admin th, .hp-admin td { padding: 12px 14px; border-bottom: 1px solid #edf0f5; vertical-align: top; }
+        .hp-admin td { color: #334155; font-size: 13px; }
+        .hp-admin tr:last-child td { border-bottom: 0; }
+        .hp-admin .hp-admin-table { min-width: 680px; }
+        .hp-admin .hp-table-wrap { max-width: 100%; overflow-x: auto; }
+        .hp-admin .hp-admin-table small { display: block; margin-top: 3px; color: #64748b; font-size: 11px; }
+        .hp-admin-detail { max-width: 1500px; margin: 0 auto; min-width: 0; }
+        .hp-admin-detail > a { color: #1d4ed8; font-size: 13px; font-weight: 750; text-decoration: none; }
+        .admin-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin:20px 0; }
+        .admin-detail-heading p { margin:0 0 5px; color:#64748b; font-size:11px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+        .admin-detail-heading h1 { margin:0; color:#172033; font-size:clamp(24px,4vw,34px); letter-spacing:-.04em; }
+        .admin-detail-heading span { color:#64748b; font-size:13px; }
+        .hp-admin-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+        .hp-admin-kpis .admin-card { display:flex; flex-direction:column; gap:8px; }
+        .hp-admin-kpis span { color:#64748b; font-size:12px; }
+        .hp-admin-kpis strong { color:#172033; font-size:22px; overflow-wrap:anywhere; }
+        .hp-badge { display:inline-flex; align-items:center; border-radius:999px; padding:6px 10px; font-size:11px!important; font-weight:800; }
+        .hp-badge.success { color:#047857!important; background:#ecfdf5; }
+        .hp-badge.warning { color:#a16207!important; background:#fffbeb; }
+        .hp-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+        .hp-form-grid label { display:grid; gap:7px; color:#475569; font-size:12px; font-weight:750; }
+        .hp-form-grid input, .hp-form-grid textarea { border:1px solid #d9e1ec; border-radius:9px; padding:10px 12px; }
+        .hp-admin-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+        .hp-admin-actions button { border:0; border-radius:9px; padding:10px 14px; background:#1d4ed8; color:white; font-weight:750; cursor:pointer; }
+        .hp-admin-actions button.danger { background:#fff; border:1px solid #fecaca; color:#b91c1c; }
+        .hp-detail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; margin:0; }
+        .hp-detail-grid div { min-width:0; }
+        .hp-detail-grid dt { color:#64748b; font-size:12px; }
+        .hp-detail-grid dd { margin:5px 0 0; color:#172033; font-size:14px; overflow-wrap:anywhere; }
+
         @media (max-width: 900px) {
-          .admin-sidebar {
+          .hp-sidebar {
             width: 205px;
           }
 
-          .admin-main {
+          .hp-main {
             width: calc(100% - 205px);
             margin-left: 205px;
           }
 
-          .admin-content {
+          .hp-content {
             padding: 20px;
           }
         }
 
         @media (max-width: 680px) {
-          .admin-sidebar {
-            position: static;
+          .hp-sidebar {
+            position: sticky;
+            top: 0;
             width: 100%;
             min-height: auto;
+            max-height: 44vh;
+            overflow-y: auto;
+            z-index: 30;
           }
 
-          .admin-shell {
+          .hp-admin {
             display: block;
           }
 
-          .admin-main {
+          .hp-main {
             width: 100%;
             margin-left: 0;
           }
 
-          .admin-nav {
-            grid-template-columns: repeat(2, 1fr);
+          .hp-shell-nav {
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
           }
 
-          .admin-header {
+          .hp-header {
             padding: 15px 18px;
             height: auto;
+            gap: 10px;
+            align-items: flex-start;
           }
 
-          .admin-content {
+          .hp-content {
             padding: 18px;
           }
+          .hp-admin .admin-card { padding: 16px; }
+          .admin-detail-heading { flex-direction: column; }
+          .hp-admin-actions button { flex: 1 1 auto; }
         }
       `}</style>
     </div>

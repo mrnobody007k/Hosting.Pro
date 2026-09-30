@@ -8,7 +8,7 @@ const topics = [
   { title: "Property Browsing", text: "Visit Properties to explore available listings. Use search and filters to find the right property for your rental needs." },
   { title: "Booking & Order Confirmation", text: "After booking a property, check My Rentals for order status. Your manager will confirm payment once you submit the reference." },
   { title: "Manager-Assisted Payment", text: "Housing.pro does not process payments online. Follow the payment details shared with your account, then submit your transaction reference for verification." },
-  { title: "Re-Rent Tasks", text: "When your rental period ends, a Re-Rent task may become available. Complete it to re-list the property and earn re-rent profit." },
+  { title: "Re-Rent Tasks", text: "A Re-Rent activity appears in your Task Center only after your manager assigns it to an eligible booking. After you submit it, settlement runs after the configured processing delay." },
   { title: "Task Completion", text: "Daily tasks (Day 2 Morning, Day 2 Afternoon, Day 3 Official) unlock as you progress. Complete them to earn profit and advance your membership." },
   { title: "Earnings & Revenue", text: "Track your task profits and re-rent earnings in the Revenue section. Day 2 tasks earn 1.2%, Day 3 tasks earn 1.4%, Re-Rent earns 1.2%." },
   { title: "Account Support", text: "For account access, profile changes, or technical issues, contact Housing.pro support using the details shared with your account." },
@@ -18,7 +18,7 @@ export default function SupportPage() {
   return <UserShell>
     <CustomerPageHeader eyebrow="Housing.pro Support" title="How can we help?" description="Guidance for property browsing, bookings, tasks, earnings, and account questions." />
     <section className="support-topics">{topics.map((topic) => <article key={topic.title}><span>Housing.pro help</span><h2>{topic.title}</h2><p>{topic.text}</p></article>)}</section>
-    <div className="support-contact"><div><strong>Still need a hand?</strong><p>Use the support contact details shared with your Housing.pro account. Include your booking code if your question is about an order.</p></div><Link href="/user/orders">View my rentals →</Link></div>
+    <div className="support-contact"><div><strong>Still need a hand?</strong><p>No in-app support contact is configured yet. For a booking question, include its booking code when using the support details provided to you by Housing.pro.</p></div><Link href="/user/orders">View my bookings →</Link></div>
     <style jsx>{`
       .support-topics {
         display: grid;
