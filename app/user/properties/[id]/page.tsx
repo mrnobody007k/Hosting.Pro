@@ -67,9 +67,9 @@ export default function PropertyDetailPage() {
           <span className="property-detail-location">{property.location || "Featured property"}</span>
           <h1>{property.title}</h1>
           <div className="property-detail-price">{money(property.price)}</div>
-          <p>{property.description || "Review the booking details and payment instructions before continuing."}</p>
-          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Preparing your rental request…" : "Request this rental"}</button>
-          <div className="property-payment-note"><strong>How payment works</strong><span>Housing.pro does not process payment through a gateway in this flow. After your request is created, follow the payment instructions in your booking and submit the reference or proof. Your booking stays pending until the manager verifies it.</span></div>
+          <p>{property.description || "Review the property details and rent amount before confirming your booking."}</p>
+          <div className="property-payment-note"><strong>Payment details</strong><span>After creating a booking, follow the payment instructions shown in your account and submit a payment reference or proof for Manager review.</span></div>
+          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Creating request…" : `Request rental · ${money(property.price)}`}</button>
         </section>
       </div>
     </>}

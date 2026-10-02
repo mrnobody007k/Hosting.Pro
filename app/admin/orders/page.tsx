@@ -30,6 +30,7 @@ type Order = {
   amount: number | string;
   storehousePrice: number | string;
   profit: number | string;
+  finalReturnAmount: number | string | null;
   profitRate: number | string;
   status: string;
   paymentStatus: string;
@@ -1021,9 +1022,7 @@ export default function OrdersPage() {
                                 "nowrap",
                             }}
                           >
-                            {formatMoney(
-                              order.profit
-                            )}
+                            {order.status === "RE_RENT_PENDING" ? <span style={{ color: "#7b858a", fontSize: 11, fontWeight: 500 }}>Not recorded</span> : formatMoney(order.profit)}
 
                             <div
                               style={{
@@ -1035,10 +1034,7 @@ export default function OrdersPage() {
                                   3,
                               }}
                             >
-                              {
-                                order.profitRate
-                              }
-                              %
+                              {order.status === "RE_RENT_PENDING" || order.status === "RE_RENTED" ? "Revenue recorded after settlement" : `${order.profitRate}% task tier`}
                             </div>
                           </td>
 
@@ -1367,27 +1363,29 @@ export default function OrdersPage() {
                     style={{
                       display: "grid",
                       gridTemplateColumns:
-                        "repeat(3,1fr)",
+                        "repeat(4,1fr)",
                       gap: 10,
                       marginTop: 10,
                     }}
                   >
                     {[
                       [
-                        "Order Value",
+                        "Original Rent",
                         formatMoney(
                           selectedOrder.amount
                         ),
                       ],
                       [
-                        "Profit",
-                        formatMoney(
-                          selectedOrder.profit
-                        ),
+                        "Final Return",
+                        selectedOrder.finalReturnAmount ? formatMoney(selectedOrder.finalReturnAmount) : selectedOrder.status === "RE_RENTED" || selectedOrder.status === "COMPLETED" ? "Legacy return unavailable" : "Pending",
                       ],
                       [
-                        "Profit Rate",
-                        `${selectedOrder.profitRate}%`,
+                        selectedOrder.status === "RE_RENT_PENDING" ? "Revenue / Profit" : "Revenue recorded",
+                        selectedOrder.status === "RE_RENT_PENDING" ? "Not recorded" : formatMoney(selectedOrder.profit),
+                      ],
+                      [
+                        selectedOrder.status === "RE_RENT_PENDING" || selectedOrder.status === "RE_RENTED" ? "Re-Rent status" : "Task tier rate",
+                        selectedOrder.status === "RE_RENT_PENDING" || selectedOrder.status === "RE_RENTED" ? selectedOrder.status.replaceAll("_", " ") : `${selectedOrder.profitRate}%`,
                       ],
                     ].map(
                       ([label, value]) => (
@@ -1741,10 +1739,7 @@ export default function OrdersPage() {
                               {
                                 task.dayNumber
                               }{" "}
-                              · Profit{" "}
-                              {
-                                task.profitRate
-                              }%
+                              {task.type !== "RE_RENT" && <>· Task tier {task.profitRate}%</>}
                             </div>
 
                             <div
@@ -1757,10 +1752,8 @@ export default function OrdersPage() {
                                   5,
                               }}
                             >
-                              Profit amount:{" "}
-                              {formatMoney(
-                                task.profitAmount
-                              )}
+                              {task.status === "COMPLETED" ? "Revenue recorded: " : task.type === "RE_RENT" ? "No Re-Rent revenue before settlement" : "Task profit (if approved): "}
+                              {task.status === "COMPLETED" || task.type !== "RE_RENT" ? formatMoney(task.profitAmount) : ""}
                             </div>
                           </div>
                         )

@@ -6,7 +6,7 @@ const DAY_2_RATE = new Decimal('1.20')
 const DAY_3_RATE = new Decimal('1.40')
 const DAY_2_TYPES = ['DAY_2_MORNING', 'DAY_2_AFTERNOON'] as const
 
-export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId: string, managerId: string) {
+export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId: string, managerId: string, now = new Date()) {
   const user = await tx.user.findFirst({
     where: { id: userId, managerId },
     select: { id: true, status: true, signupStatus: true, membershipStatus: true, approvedAt: true, createdAt: true, manager: { select: { status: true } } },
@@ -14,7 +14,7 @@ export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId
   if (!user) throw new Error('USER_NOT_FOUND')
   if (user.status !== 'ACTIVE' || user.signupStatus !== 'APPROVED' || user.manager.status !== 'ACTIVE') throw new Error('USER_INACTIVE')
 
-  const day = getClientDay(user.approvedAt, user.createdAt)
+  const day = getClientDay(user.approvedAt, user.createdAt, now)
   const verifiedOrder = await tx.order.findFirst({
     where: { userId, managerId, status: 'ACTIVE', paymentStatus: 'PAID', paymentVerifiedAt: { not: null } },
     orderBy: [{ paymentVerifiedAt: 'desc' }, { createdAt: 'desc' }],
@@ -65,7 +65,7 @@ export async function syncDailyTaskProgress(tx: Prisma.TransactionClient, userId
   })
   let membershipStatus = user.membershipStatus
   if (bothComplete && membershipStatus !== 'OFFICIAL_MEMBER') {
-    const promoted = await tx.user.updateMany({ where: { id: userId, managerId, membershipStatus: { not: 'OFFICIAL_MEMBER' } }, data: { membershipStatus: 'OFFICIAL_MEMBER', officialMemberAt: new Date() } })
+    const promoted = await tx.user.updateMany({ where: { id: userId, managerId, membershipStatus: { not: 'OFFICIAL_MEMBER' } }, data: { membershipStatus: 'OFFICIAL_MEMBER', officialMemberAt: now } })
     if (promoted.count === 1) {
       membershipStatus = 'OFFICIAL_MEMBER'
       await tx.notification.create({ data: { userId, type: 'SUCCESS', title: 'Official membership unlocked', message: 'Both required Day 2 tasks are complete. Your Day 3 membership is active.' } })

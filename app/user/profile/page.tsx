@@ -11,12 +11,13 @@ export default function ProfilePage() {
     <CustomerPageHeader eyebrow="YOUR ACCOUNT" title="Profile" description="Review the personal details connected to your Housing.pro account." />
     <CustomerPageState loading={loading} error={error} retry={() => void reload()} />
     {!loading && !error && <nav className="customer-profile-menu" aria-label="Account shortcuts">
-      {[["Wallet", "/user/wallet", "Check available balance and earnings"], ["My bookings", "/user/orders", "Track rental and payment status"], ["Add funds", "/user/deposits", "Follow instructions and submit a deposit"], ["Withdrawals", "/user/withdrawals", "Review or request a payout"], ["Activity", "/user/activity", "See account and wallet updates"], ["Notifications", "/user/notifications", "Read important account messages"], ["Account access", "/user/referral", "Review how your account is linked"], ["Settings", "/user/settings", "Update payment password and security"]].map(([title, href, detail]) => <Link key={href} href={href}><strong>{title}</strong><span>{detail}</span><b aria-hidden="true">→</b></Link>)}
+      {[["Wallet", "/user/wallet", "Check available balance and earnings"], ["My bookings", "/user/orders", "Track rental and payment status"], ["Tier", "/user/tier", "View your assigned display tier"], ["Add funds", "/user/deposits", "Follow instructions and submit a deposit"], ["Withdrawals", "/user/withdrawals", "Review or request a payout"], ["Activity", "/user/activity", "See account and wallet updates"], ["Notifications", "/user/notifications", "Read important account messages"], ["Account access", "/user/referral", "Review how your account is linked"], ["Settings", "/user/settings", "Update payment password and security"]].map(([title, href, detail]) => <Link key={href} href={href}><strong>{title}</strong><span>{detail}</span><b aria-hidden="true">→</b></Link>)}
     </nav>}
     {!loading && !error && <section className="profile-surface customer-surface">
       {[
         ["Full name", user?.name], ["Email address", user?.email], ["Phone number", user?.phone],
         ["Age", user?.age], ["Profession", user?.profession], ["Account", customerStatus(user?.status)],
+        ["Display tier", user?.displayTier ? user.displayTier.charAt(0) + user.displayTier.slice(1).toLowerCase() : "Not assigned"],
       ].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{value || "Not provided"}</strong></div>)}
       <p>Your profile details are read-only here. Contact Housing.pro support if a correction is needed.</p>
     </section>}

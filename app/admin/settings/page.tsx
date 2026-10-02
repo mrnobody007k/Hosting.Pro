@@ -10,7 +10,6 @@ type Setting = {
   welcomeBalance: number | string;
   day2ProfitRate: number | string;
   day3ProfitRate: number | string;
-  rerentProfitRate: number | string;
   rerentDelaySeconds: number;
   depositInstructions: string;
   createdAt: string | null;
@@ -292,13 +291,6 @@ export default function AdminSettingsPage() {
                     <span>Day 3 Profit Rate</span>
                     <strong>
                       {new Decimal(String(setting?.day3ProfitRate || 0)).toFixed(2)}%
-                    </strong>
-                  </div>
-
-                  <div className="readonly-row">
-                    <span>Re-Rent Profit Rate</span>
-                    <strong>
-                      {new Decimal(String(setting?.rerentProfitRate || 0)).toFixed(2)}%
                     </strong>
                   </div>
 

@@ -106,6 +106,7 @@ export async function GET(request: Request) {
         amount: order.amount.toString(),
         storehousePrice: order.storehousePrice.toString(),
         profit: order.profit.toString(),
+        finalReturnAmount: order.finalReturnAmount?.toString() ?? null,
         profitRate: order.profitRate.toString(),
 
         property: order.property

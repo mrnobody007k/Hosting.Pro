@@ -1,14 +1,29 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { assertAdminBootstrapEmailAvailable, assertSeedExecutionAllowed, normalizeSuperAdminBootstrap } from '../lib/seed-safety'
 
 const prisma = new PrismaClient()
 
 const isProduction = process.env.NODE_ENV === 'production'
 
 async function main() {
+  assertSeedExecutionAllowed(process.env)
+
   const seedPassword = process.env.SEED_PASSWORD
   if (!seedPassword || seedPassword.length < 12) {
     throw new Error('Set SEED_PASSWORD to a strong password (12+ characters) before running the seed script.')
+  }
+
+  const superAdmin = normalizeSuperAdminBootstrap({
+    email: process.env.SUPER_ADMIN_EMAIL,
+    name: process.env.SUPER_ADMIN_NAME,
+    password: process.env.SUPER_ADMIN_PASSWORD,
+  })
+  const { email: superAdminEmail, name: superAdminName, password: superAdminPassword } = superAdmin
+  const hasSuperAdminEnvVars = Boolean(superAdminEmail && superAdminName && superAdminPassword)
+
+  if (isProduction && !hasSuperAdminEnvVars) {
+    throw new Error('Production bootstrap requires SUPER_ADMIN_EMAIL, SUPER_ADMIN_NAME, and SUPER_ADMIN_PASSWORD.')
   }
 
   const hash = await bcrypt.hash(seedPassword, 12)
@@ -23,58 +38,39 @@ async function main() {
     })
   }
 
-  const manager = await prisma.manager.upsert({
-    where: { email: 'manager@example.com' },
-    update: { paymentAccountLabel: 'Demo payment account', paymentAccountDetails: 'Replace this with the payment details you actually want clients to use.' },
-    create: { name: 'Demo Manager', email: 'manager@example.com', passwordHash: hash, referralCode: 'DEMO001', paymentAccountLabel: 'Demo payment account', paymentAccountDetails: 'Replace this with the payment details you actually want clients to use.' },
-  })
+  if (!isProduction) {
+    const manager = await prisma.manager.upsert({
+      where: { email: 'manager@example.com' },
+      update: { paymentAccountLabel: 'Demo payment account', paymentAccountDetails: 'Replace this with the payment details you actually want clients to use.' },
+      create: { name: 'Demo Manager', email: 'manager@example.com', passwordHash: hash, referralCode: 'DEMO001', paymentAccountLabel: 'Demo payment account', paymentAccountDetails: 'Replace this with the payment details you actually want clients to use.' },
+    })
 
-  const user = await prisma.user.upsert({
-    where: { email: 'user@example.com' },
-    update: { managerId: manager.id, status: 'ACTIVE', signupStatus: 'APPROVED', membershipStatus: 'DAY_1', approvedAt: new Date(), paymentPasswordHash: hash },
-    create: { name: 'Demo User', email: 'user@example.com', passwordHash: hash, paymentPasswordHash: hash, managerId: manager.id, status: 'ACTIVE', signupStatus: 'APPROVED', membershipStatus: 'DAY_1', approvedAt: new Date() },
-  })
+    const user = await prisma.user.upsert({
+      where: { email: 'user@example.com' },
+      update: { managerId: manager.id, status: 'ACTIVE', signupStatus: 'APPROVED', membershipStatus: 'DAY_1', approvedAt: new Date(), paymentPasswordHash: hash },
+      create: { name: 'Demo User', email: 'user@example.com', passwordHash: hash, paymentPasswordHash: hash, managerId: manager.id, status: 'ACTIVE', signupStatus: 'APPROVED', membershipStatus: 'DAY_1', approvedAt: new Date() },
+    })
 
-  await prisma.$transaction(async (tx) => {
-    const existingWallet = await tx.wallet.findUnique({ where: { userId: user.id }, select: { id: true } })
-    if (!existingWallet) {
-      const wallet = await tx.wallet.create({ data: { userId: user.id, balance: '120.00', reservedBalance: '0.00' } })
-      const reference = `seed-welcome:${user.id}`
-      const existingEntry = await tx.transaction.findFirst({ where: { userId: user.id, type: 'WELCOME_BONUS', reference }, select: { id: true } })
-      if (!existingEntry) {
-        await tx.transaction.create({ data: { userId: user.id, managerId: manager.id, type: 'WELCOME_BONUS', amount: '120.00', balanceBefore: '0.00', balanceAfter: wallet.balance, reference, note: 'Demo Day 1 welcome balance.' } })
+    await prisma.$transaction(async (tx) => {
+      const existingWallet = await tx.wallet.findUnique({ where: { userId: user.id }, select: { id: true } })
+      if (!existingWallet) {
+        const wallet = await tx.wallet.create({ data: { userId: user.id, balance: '120.00', reservedBalance: '0.00' } })
+        const reference = `seed-welcome:${user.id}`
+        const existingEntry = await tx.transaction.findFirst({ where: { userId: user.id, type: 'WELCOME_BONUS', reference }, select: { id: true } })
+        if (!existingEntry) {
+          await tx.transaction.create({ data: { userId: user.id, managerId: manager.id, type: 'WELCOME_BONUS', amount: '120.00', balanceBefore: '0.00', balanceAfter: wallet.balance, reference, note: 'Demo Day 1 welcome balance.' } })
+        }
       }
-    }
-  })
-
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL
-  const superAdminName = process.env.SUPER_ADMIN_NAME
-  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD
-
-  const hasSuperAdminEnvVars = superAdminEmail && superAdminName && superAdminPassword
+    })
+  }
 
   const existingSuperAdmin = await prisma.adminUser.findFirst({
     where: { adminType: 'SUPER_ADMIN' },
-    select: { id: true, email: true, name: true, passwordHash: true },
+    select: { id: true },
   })
 
   if (existingSuperAdmin) {
-    if (!superAdminPassword) {
-      console.log(`Super Admin already exists: ${existingSuperAdmin.email}. SUPER_ADMIN_PASSWORD not set, skipping password update.`)
-      return
-    }
-    // Check if password needs to be updated
-    const passwordMatches = await bcrypt.compare(superAdminPassword!, existingSuperAdmin.passwordHash)
-    if (!passwordMatches) {
-      const superAdminHash = await bcrypt.hash(superAdminPassword!, 12)
-      await prisma.adminUser.update({
-        where: { id: existingSuperAdmin.id },
-        data: { passwordHash: superAdminHash },
-      })
-      console.log(`Super Admin password updated for: ${existingSuperAdmin.email}`)
-    } else {
-      console.log(`Super Admin already exists: ${existingSuperAdmin.email}. Password is up to date.`)
-    }
+    console.log('Super Admin already exists. Seed does not change existing Admin credentials.')
     return
   }
 
@@ -94,22 +90,22 @@ async function main() {
     return
   }
 
-  if (superAdminPassword.length < 12) {
-    throw new Error('SUPER_ADMIN_PASSWORD must be at least 12 characters.')
-  }
+  const superAdminHash = await bcrypt.hash(superAdminPassword!, 12)
 
-  const superAdminHash = await bcrypt.hash(superAdminPassword, 12)
+  await prisma.$transaction(async (tx) => {
+    await assertAdminBootstrapEmailAvailable(tx, superAdminEmail!)
+    await tx.adminUser.create({
+      data: {
+        name: superAdminName!,
+        email: superAdminEmail!,
+        passwordHash: superAdminHash,
+        adminType: 'SUPER_ADMIN',
+        permissions: [],
+      },
+    })
+  }, { isolationLevel: 'Serializable' })
 
-  await prisma.adminUser.create({
-    data: {
-      name: superAdminName,
-      email: superAdminEmail,
-      passwordHash: superAdminHash,
-      adminType: 'SUPER_ADMIN',
-      permissions: [],
-    },
-  })
-  console.log(`Created initial Super Admin: ${superAdminEmail}`)
+  console.log('Created initial Super Admin.')
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 }).finally(() => prisma.$disconnect())

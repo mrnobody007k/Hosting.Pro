@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from '@playwright/test'
+import { SCHEDULER_E2E_SECRET } from './e2e/scheduler-test-secret'
 
 const localEnvPath = path.join(process.cwd(), '.env.local.test')
 const e2eSecretsPath = path.join(process.cwd(), '.env.local.e2e')
@@ -70,7 +71,8 @@ if (!Number.isInteger(testPort) || testPort < 1024 || testPort > 65535) {
   throw new Error('PLAYWRIGHT_PORT must be a valid local TCP port.')
 }
 const baseURL = `http://127.0.0.1:${testPort}`
-
+// Keep the local test worker and its local Next.js server on the same fixture credential.
+process.env.SCHEDULER_SERVICE_SECRET = SCHEDULER_E2E_SECRET
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -90,7 +92,11 @@ export default defineConfig({
     env: {
       ...process.env,
       NODE_ENV: 'development',
+      // Exercise the trusted-proxy login limiter path only in the local E2E server.
+      TRUST_PROXY: 'true',
       DATABASE_URL: localTestDatabaseUrl,
+      // Ephemeral credential scoped to this local Playwright server process.
+      SCHEDULER_SERVICE_SECRET: SCHEDULER_E2E_SECRET,
     },
   },
 })

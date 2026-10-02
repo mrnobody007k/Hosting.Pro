@@ -36,6 +36,7 @@ enum TransactionType {
   WITHDRAWAL
   ADJUSTMENT
   PROFIT
+  RERENT_SETTLEMENT
   WELCOME_BONUS
 }
 
@@ -50,6 +51,12 @@ enum MembershipStatus {
   DAY_1
   DAY_2
   OFFICIAL_MEMBER
+}
+
+enum DisplayTier {
+  GOLD
+  DIAMOND
+  MERCHANT
 }
 
 enum PropertyStatus {
@@ -144,6 +151,7 @@ model User {
 
   signupStatus     SignupStatus     @default(PENDING)
   membershipStatus MembershipStatus @default(PENDING_APPROVAL)
+  displayTier      DisplayTier?
   approvedAt       DateTime?
   officialMemberAt DateTime?
 
@@ -264,6 +272,7 @@ model Order {
   storehousePrice Decimal @default(0) @db.Decimal(18, 2)
   profit          Decimal @default(0) @db.Decimal(18, 2)
   profitRate      Decimal @default(1.20) @db.Decimal(5, 2)
+  finalReturnAmount Decimal? @db.Decimal(18, 2)
 
   status        OrderStatus   @default(PAYMENT_PENDING)
   paymentStatus RequestStatus @default(PENDING)

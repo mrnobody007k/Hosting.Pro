@@ -306,32 +306,28 @@ export function requireSameOrigin(
 export function getClientIp(
   req: Request,
 ) {
-  if (
-    process.env.TRUST_PROXY ===
-    'true'
-  ) {
-    const forwarded =
-      req.headers.get(
-        'x-forwarded-for',
-      )
-
-    if (forwarded) {
-      return forwarded
-        .split(',')[0]
-        .trim()
-        .slice(0, 100)
+  const normalizeIp = (value: string | null) => {
+    if (!value) return null
+    const candidate = value.trim()
+    if (!candidate || candidate.length > 100 || candidate.includes(',')) return null
+    // Accept IPv4, IPv6, and IPv4-with-port values commonly used by proxies.
+    if (/^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?$/.test(candidate)) {
+      const address = candidate.replace(/:\d{1,5}$/, '')
+      if (address.split('.').every((part) => Number(part) <= 255)) return candidate
+      return null
     }
+    if (/^[0-9a-fA-F:]+$/.test(candidate) && candidate.includes(':')) return candidate
+    return null
+  }
 
-    const realIp =
-      req.headers.get(
-        'x-real-ip',
-      )
+  if (process.env.TRUST_PROXY === 'true') {
+    // The leftmost forwarded address is safe only when the configured proxy
+    // strips client-supplied X-Forwarded-For and writes its own value.
+    const forwarded = normalizeIp(req.headers.get('x-forwarded-for')?.split(',')[0] ?? null)
+    if (forwarded) return forwarded
 
-    if (realIp) {
-      return realIp
-        .trim()
-        .slice(0, 100)
-    }
+    const realIp = normalizeIp(req.headers.get('x-real-ip'))
+    if (realIp) return realIp
   }
 
   return 'unknown'

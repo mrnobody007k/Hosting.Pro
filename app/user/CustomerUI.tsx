@@ -4,7 +4,7 @@ import { ReactNode, useCallback, useEffect, useState } from "react"
 import { Decimal } from "decimal.js"
 
 export type CustomerOverview = {
-  user?: { id: string; name: string; email: string; age?: number | null; profession?: string | null; phone?: string | null; status?: string; membershipStatus?: string; approvedAt?: string | null; officialMemberAt?: string | null; createdAt?: string; hasPaymentPassword?: boolean; wallet?: { balance?: string | number; reservedBalance?: string | number } | null }
+  user?: { id: string; name: string; email: string; age?: number | null; profession?: string | null; phone?: string | null; status?: string; membershipStatus?: string; displayTier?: string | null; approvedAt?: string | null; officialMemberAt?: string | null; createdAt?: string; hasPaymentPassword?: boolean; wallet?: { balance?: string | number; reservedBalance?: string | number } | null }
   wallet?: { balance?: string | number; reservedBalance?: string | number }
   availableBalance?: string | number
   earnings?: {

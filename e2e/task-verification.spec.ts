@@ -152,6 +152,7 @@ test.beforeAll(async () => {
     createdWallet = true
     await prisma.wallet.create({ data: { userId, balance: '0.00' } })
   }
+  await prisma.wallet.update({ where: { userId }, data: { balance: '10000.00', reservedBalance: '0.00' } })
   if (settings.length) {
     settingSnapshots = settings
     await prisma.platformSetting.updateMany({ data: { rerentDelaySeconds: delayForTestSeconds } })
@@ -228,6 +229,7 @@ test('daily and Re-Rent profits require manager verification and settle at most 
 
   const walletBalance = async () => (await prisma.wallet.findUniqueOrThrow({ where: { userId }, select: { balance: true } })).balance.toString()
   const transactionCount = async (taskId: string) => prisma.transaction.count({ where: { userId, managerId, type: 'PROFIT', reference: taskId } })
+  const rerentCreditCount = async (taskId: string) => prisma.transaction.count({ where: { userId, managerId, type: 'RERENT_SETTLEMENT', reference: taskId } })
 
   const morningId = dailyTaskIds.DAY_2_MORNING
   const beforeMorning = await walletBalance()
@@ -295,7 +297,17 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   expect(Number(await walletBalance()) - Number(beforeDay3)).toBe(14)
   expect(await transactionCount(day3Id)).toBe(1)
 
-  const rerentOrder = await createOrder('rerent')
+  const beforeRent = await walletBalance()
+  const rentBooking = await post(page, '/api/user/orders', { propertyId, amount: '1000.00', quantity: 1 })
+  expect(rentBooking.status).toBe(200)
+  const rerentOrderId = rentBooking.body.order.id as string
+  orderIds.push(rerentOrderId)
+  expect(rentBooking.body.order.status).toBe('ACTIVE')
+  expect(rentBooking.body.order.paymentStatus).toBe('PAID')
+  expect(Number(beforeRent) - Number(await walletBalance())).toBe(1000)
+  const rentDebit = await prisma.transaction.findFirstOrThrow({ where: { userId, managerId, reference: rerentOrderId, type: 'ADJUSTMENT' } })
+  expect(rentDebit.amount.toString()).toBe('-1000')
+  const rerentOrder = await prisma.order.findUniqueOrThrow({ where: { id: rerentOrderId } })
   const assignment = await post(managerPage, '/api/manager/orders/rerent', { orderId: rerentOrder.id })
   expect(assignment.status).toBe(200)
   const assignedTaskId = assignment.body.task.id as string
@@ -304,18 +316,34 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   expect(await walletBalance()).toBe(beforeRerent)
   expect(await transactionCount(assignedTaskId)).toBe(0)
   expect((await post(page, '/api/user/tasks/settle', { taskId: assignedTaskId })).status).toBe(409)
-  const rerentApproval = await post(managerPage, `/api/manager/tasks/${assignedTaskId}/review`, { decision: 'APPROVE' })
-  expect(rerentApproval.body.status).toBe('VERIFIED')
   const beforeDelay = await post(page, '/api/user/tasks/settle', { taskId: assignedTaskId })
-  expect(beforeDelay.status).toBe(200)
-  expect(beforeDelay.body.processing).toBe(true)
+  expect(beforeDelay.status).toBe(409)
+  expect(beforeDelay.body.pendingManagerSettlement).toBe(true)
+  for (const [invalidReturn, expectedStatus] of [['0', 400], ['999.99', 409], ['1500.001', 400]] as const) {
+    // A syntactically valid return below principal reaches the settlement delay
+    // guard first; malformed/non-positive amounts fail parsing before the transaction.
+    expect((await post(managerPage, `/api/manager/tasks/${assignedTaskId}/review`, { decision: 'APPROVE', finalReturnAmount: invalidReturn })).status).toBe(expectedStatus)
+  }
   const submittedAt = (await prisma.task.findUniqueOrThrow({ where: { id: assignedTaskId }, select: { submittedAt: true } })).submittedAt!
+  const earlyApproval = await post(managerPage, `/api/manager/tasks/${assignedTaskId}/review`, { decision: 'APPROVE', finalReturnAmount: '1500.00' })
+  expect(earlyApproval.status).toBe(409)
   const remaining = Math.max(0, delayForTestSeconds * 1000 - (Date.now() - submittedAt.getTime()) + 100)
   if (remaining) await new Promise((resolve) => setTimeout(resolve, remaining))
-  const concurrentSettlements = await Promise.all(Array.from({ length: 3 }, () => post(page, '/api/user/tasks/settle', { taskId: assignedTaskId })))
-  expect(concurrentSettlements.every((result) => result.status === 200 && result.body.completed === true)).toBe(true)
-  expect(await transactionCount(assignedTaskId)).toBe(1)
-  expect((await prisma.task.findUniqueOrThrow({ where: { id: assignedTaskId }, select: { status: true } })).status).toBe('COMPLETED')
+  const concurrentSettlements = await Promise.all(Array.from({ length: 3 }, () => post(managerPage, `/api/manager/tasks/${assignedTaskId}/review`, { decision: 'APPROVE', finalReturnAmount: '1500.00' })))
+  expect(concurrentSettlements.every((result) => result.status === 200 && result.body.status === 'COMPLETED')).toBe(true)
+  expect(await rerentCreditCount(assignedTaskId)).toBe(1)
+  expect(await transactionCount(assignedTaskId)).toBe(0)
+  expect((await prisma.task.findUniqueOrThrow({ where: { id: assignedTaskId }, select: { status: true, profitAmount: true } })).profitAmount.toString()).toBe('500')
+  const settledOrder = await prisma.order.findUniqueOrThrow({ where: { id: rerentOrder.id }, select: { status: true, amount: true, finalReturnAmount: true, profit: true } })
+  expect(settledOrder.status).toBe('RE_RENTED')
+  expect(settledOrder.amount.toString()).toBe('1000')
+  expect(settledOrder.finalReturnAmount?.toString()).toBe('1500')
+  expect(settledOrder.profit.toString()).toBe('500')
+  expect(Number(await walletBalance()) - Number(beforeRerent)).toBe(1500)
+  const repeatedApproval = await post(managerPage, `/api/manager/tasks/${assignedTaskId}/review`, { decision: 'APPROVE', finalReturnAmount: '1200.00' })
+  expect(repeatedApproval.status).toBe(200)
+  expect(repeatedApproval.body.alreadyCompleted).toBe(true)
+  expect(await rerentCreditCount(assignedTaskId)).toBe(1)
 
   const rejectedOrder = await createOrder('rejected-rerent')
   const rejectedAssignment = await post(managerPage, '/api/manager/orders/rerent', { orderId: rejectedOrder.id })
@@ -326,7 +354,7 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   expect(rejectedReview.status).toBe(200)
   expect(rejectedReview.body.status).toBe('REJECTED')
   await expect.poll(() => prisma.task.findUniqueOrThrow({ where: { id: rejectedTaskId }, select: { status: true } })).toEqual({ status: 'REJECTED' })
-  expect((await post(page, '/api/user/tasks/settle', { taskId: rejectedTaskId })).status).toBe(400)
+  expect((await post(page, '/api/user/tasks/settle', { taskId: rejectedTaskId })).status).toBe(409)
   expect((await prisma.order.findUniqueOrThrow({ where: { id: rejectedOrder.id }, select: { status: true } })).status).toBe('RE_RENT_PENDING')
   const sameManagerRerentPage = await browser.newPage()
   await signIn(sameManagerRerentPage, 'user', 'other-same-manager')
@@ -349,15 +377,11 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   expect(rerentRetry.body.task.status).toBe('SUBMITTED')
   expect(await walletBalance()).toBe(beforeRejectedRetry)
   expect(await transactionCount(rejectedTaskId)).toBe(0)
-  const rejectedRetryApproval = await post(managerPage, `/api/manager/tasks/${rejectedTaskId}/review`, { decision: 'APPROVE' })
+  await prisma.task.update({ where: { id: rejectedTaskId }, data: { submittedAt: new Date(Date.now() - (delayForTestSeconds + 2) * 1000) } })
+  const rejectedRetryApproval = await post(managerPage, `/api/manager/tasks/${rejectedTaskId}/review`, { decision: 'APPROVE', finalReturnAmount: '1200.00' })
   expect(rejectedRetryApproval.status).toBe(200)
-  expect(rejectedRetryApproval.body.status).toBe('VERIFIED')
-  const retrySubmittedAt = (await prisma.task.findUniqueOrThrow({ where: { id: rejectedTaskId }, select: { submittedAt: true } })).submittedAt!
-  const retryRemaining = Math.max(0, delayForTestSeconds * 1000 - (Date.now() - retrySubmittedAt.getTime()) + 100)
-  if (retryRemaining) await new Promise((resolve) => setTimeout(resolve, retryRemaining))
-  const retrySettlements = await Promise.all(Array.from({ length: 3 }, () => post(page, '/api/user/tasks/settle', { taskId: rejectedTaskId })))
-  expect(retrySettlements.every((result) => result.status === 200 && result.body.completed === true)).toBe(true)
-  expect(await transactionCount(rejectedTaskId)).toBe(1)
+  expect(rejectedRetryApproval.body.status).toBe('COMPLETED')
+  expect(await rerentCreditCount(rejectedTaskId)).toBe(1)
   expect((await prisma.task.findUniqueOrThrow({ where: { id: rejectedTaskId }, select: { status: true } })).status).toBe('COMPLETED')
   expect((await prisma.order.findUniqueOrThrow({ where: { id: rejectedOrder.id }, select: { status: true } })).status).toBe('RE_RENTED')
 
@@ -378,10 +402,18 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   })
   expect((await post(page, '/api/user/tasks/settle', { taskId: legacyTask.id })).status).toBe(409)
   expect(await transactionCount(legacyTask.id)).toBe(0)
-  const legacyApproval = await post(managerPage, `/api/manager/tasks/${legacyTask.id}/review`, { decision: 'APPROVE' })
-  expect(legacyApproval.body.status).toBe('VERIFIED')
-  expect((await post(page, '/api/user/tasks/settle', { taskId: legacyTask.id })).body.completed).toBe(true)
-  expect(await transactionCount(legacyTask.id)).toBe(1)
+  const legacyApproval = await post(managerPage, `/api/manager/tasks/${legacyTask.id}/review`, { decision: 'APPROVE', finalReturnAmount: '1200.00' })
+  expect(legacyApproval.body.status).toBe('COMPLETED')
+  expect(await rerentCreditCount(legacyTask.id)).toBe(1)
+
+  const balanceBeforeInsufficientBooking = await walletBalance()
+  await prisma.wallet.update({ where: { userId }, data: { balance: '0.00', reservedBalance: '0.00' } })
+  const orderCountBeforeInsufficientBooking = await prisma.order.count({ where: { userId, managerId } })
+  const insufficientBooking = await post(page, '/api/user/orders', { propertyId, amount: '1000.00' })
+  expect(insufficientBooking.status).toBe(409)
+  expect(await prisma.order.count({ where: { userId, managerId } })).toBe(orderCountBeforeInsufficientBooking)
+  expect((await prisma.wallet.findUniqueOrThrow({ where: { userId }, select: { balance: true } })).balance.toString()).toBe('0')
+  await prisma.wallet.update({ where: { userId }, data: { balance: balanceBeforeInsufficientBooking } })
 
   await managerPage.close()
 })

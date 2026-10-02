@@ -6,13 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "worker:rerent": "node scripts/rerent-worker.mjs",
+    "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:test-fixtures": "tsx scripts/create-local-test-fixtures.ts",
     "db:setup-e2e": "node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs scripts/setup-local-e2e.ts",
     "db:local-sample-properties": "tsx scripts/create-local-sample-properties.ts",
+    "test:unit": "node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/*.test.ts tests/*.test.tsx",
+    "test:scheduler-unit": "node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/scheduler-auth.test.ts tests/scheduler-handler.test.ts tests/scheduler-window.test.ts tests/scheduler-runner.test.ts tests/rerent-settlement.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

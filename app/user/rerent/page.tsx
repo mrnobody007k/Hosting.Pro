@@ -28,7 +28,8 @@ type Order = {
   orderCode: string
   amount: number | string
   profit: number | string
-  profitRate: number | string
+  finalReturnAmount?: string | null
+  profitRate?: number | string
   status: string
   paymentStatus: string
   property: {
@@ -42,7 +43,7 @@ type Order = {
   createdAt: string
   tasks?: { id: string; type: string; status: string; dayNumber: number; assignedAt: string; submittedAt: string | null }[]
 }
-type AssignedTask = { id: string; type: string; title: string; status: string; dayNumber: number; assignedAt: string; submittedAt: string | null; completedAt?: string | null; profitAmount: string | number; order: { id: string; orderCode: string; status: string; rerentedAt: string | null; property: Order["property"] } | null }
+type AssignedTask = { id: string; type: string; title: string; status: string; dayNumber: number; assignedAt: string; submittedAt: string | null; completedAt?: string | null; profitAmount: string | number; order: { id: string; orderCode: string; amount: string | number; profit: string | number; finalReturnAmount: string | null; status: string; rerentedAt: string | null; property: Order["property"] } | null }
 
 export default function RerentPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -70,43 +71,11 @@ export default function RerentPage() {
 
   useEffect(() => { load() }, [])
 
-  useEffect(() => {
-    const pendingTaskIds = assignedTasks.filter((task) => task.status === "VERIFIED").map((task) => task.id)
-    if (!pendingTaskIds.length) return
-
-    let stopped = false
-    const settle = async () => {
-      let completed = false
-      for (const taskId of pendingTaskIds) {
-        try {
-          const response = await fetch("/api/user/tasks/settle", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId }),
-          })
-          if (!response.ok) continue
-          const result = await response.json()
-          completed ||= result.completed === true
-        } catch {
-          // Retry on the next interval if the network is temporarily unavailable.
-        }
-      }
-      if (completed && !stopped) await load()
-    }
-
-    let timer: number | undefined
-    const poll = async () => {
-      await settle()
-      if (!stopped) timer = window.setTimeout(() => { void poll() }, 30000)
-    }
-    timer = window.setTimeout(() => { void poll() }, 30000)
-    return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer) }
-  }, [assignedTasks])
-
   const assignedOrderIds = new Set(assignedTasks.flatMap((task) => task.order ? [task.order.id] : []))
   const activeOrders = orders.filter(o => o.status === "ACTIVE" && o.paymentStatus === "PAID" && !assignedOrderIds.has(o.id))
   const taskOrders = assignedTasks.filter((task) => task.order).map((task) => ({
-    id: task.order!.id, orderCode: task.order!.orderCode, amount: "0", profit: "0", profitRate: "0",
+    id: task.order!.id, orderCode: task.order!.orderCode, amount: task.order!.amount, profit: task.order!.profit,
+    finalReturnAmount: task.order!.finalReturnAmount,
     status: task.order!.status, paymentStatus: "PAID", property: task.order!.property,
     rerentRequestedAt: task.submittedAt, rerentedAt: task.order!.rerentedAt, createdAt: task.assignedAt,
     tasks: [task],
@@ -115,7 +84,7 @@ export default function RerentPage() {
   const rerented = taskOrders.filter((order) => order.tasks?.some((task) => task.status === "COMPLETED"))
 
   return <UserShell>
-    <CustomerPageHeader eyebrow="RE-RENT CENTER" title="Re-Rent Activities" description="Your manager assigns Re-Rent activities to eligible bookings. Complete an assigned activity from your Task Center; settlement is then processed after the configured delay." action={<button className="hp-user-btn hp-user-btn-secondary" type="button" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh status"}</button>} />
+    <CustomerPageHeader eyebrow="RE-RENT CENTER" title="Re-Rent Activities" description="Your manager assigns Re-Rent activities to eligible bookings and enters the final return for settlement after the configured delay." action={<button className="hp-user-btn hp-user-btn-secondary" type="button" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh status"}</button>} />
     {error && !loading && <div role="alert" className="rerent-error">{error}</div>}
     <CustomerPageState loading={loading} error={error} retry={load} />
 
@@ -158,7 +127,7 @@ export default function RerentPage() {
                   <h3>{order.property?.title || "Property"}</h3>
                   <div className="rerent-details">
                     <div><strong>Order:</strong> {order.orderCode}</div>
-                    <div><strong>Original Amount:</strong> {money(order.amount)}</div>
+                    <div><strong>Original Rent:</strong> {money(order.amount)}</div>
                   </div>
                   <div className="rerent-actions">
                     <Link href={`/user/orders/${order.id}`} className="hp-user-btn hp-user-btn-secondary">View Details</Link>
@@ -174,7 +143,7 @@ export default function RerentPage() {
       {rerentPending.length > 0 && (
         <section className="rerent-section">
           <h2>Assigned and Processing</h2>
-          <p className="rerent-section-desc">Submit your assigned activity for manager verification. Settlement occurs only after approval and the configured delay from submission.</p>
+          <p className="rerent-section-desc">Submit your assigned activity. Your manager enters and approves the final return after the configured delay. Pending records show no revenue.</p>
           <div className="rerent-list">
             {rerentPending.map((order) => {
               const task = order.tasks?.find(item => item.type === "RE_RENT")
@@ -186,7 +155,7 @@ export default function RerentPage() {
                 : task?.status === "SUBMITTED"
                   ? "Your activity is awaiting manager verification. No profit is credited yet."
                 : task?.status === "VERIFIED"
-                  ? "Your activity is verified. Settlement will complete after the configured delay from submission."
+                  ? "Your activity is verified and awaiting your manager’s final return amount and settlement approval."
                 : task?.status === "REJECTED"
                   ? "Your activity was not approved; no profit was credited. Retry the activity in the Task Center."
                   : "This booking is awaiting a Re-Rent assignment from your manager."
@@ -209,7 +178,7 @@ export default function RerentPage() {
       {rerented.length > 0 && (
         <section className="rerent-section">
           <h2>Completed Re-Rents</h2>
-          <p className="rerent-section-desc">These properties have been successfully re-rented and are earning profit.</p>
+          <p className="rerent-section-desc">Completed Re-Rent records show the original Rent and the revenue credit recorded for the activity.</p>
           <div className="rerent-grid">
             {rerented.map((order) => (
               <article className="rerent-card completed" key={order.id}>
@@ -226,6 +195,7 @@ export default function RerentPage() {
                   <h3>{order.property?.title || "Property"}</h3>
                   <div className="rerent-details">
                     <div><strong>Order:</strong> {order.orderCode}</div>
+                    <div className="hp-rent-revenue"><div><span>Original Rent</span><strong>{money(order.amount)}</strong></div>{order.finalReturnAmount && <div><span>Final Return</span><strong>{money(order.finalReturnAmount)}</strong></div>}<div><span>Revenue / Profit</span><strong>{money(order.profit)}</strong></div></div>
                     <div><strong>Completed:</strong> {order.tasks?.find((task) => task.type === "RE_RENT")?.submittedAt ? new Date(order.tasks.find((task) => task.type === "RE_RENT")!.submittedAt!).toLocaleString("en-IN") : "Settlement recorded"}</div>
                   </div>
                   <div className="rerent-actions">

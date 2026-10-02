@@ -32,11 +32,11 @@ export async function GET(request: Request) {
         id: true, type: true, title: true, description: true, propertyUrl: true, dayNumber: true,
         profitRate: true, profitAmount: true, status: true, assignedAt: true, startedAt: true,
         submittedAt: true, completedAt: true, createdAt: true,
-        order: { select: { id: true, orderCode: true, status: true, rerentedAt: true, property: { select: { id: true, title: true, location: true, imageUrl: true } } } },
+        order: { select: { id: true, orderCode: true, amount: true, profit: true, finalReturnAmount: true, status: true, rerentedAt: true, property: { select: { id: true, title: true, location: true, imageUrl: true } } } },
       },
     })
     return NextResponse.json({
-      tasks: tasks.map((task) => ({ ...task, propertyUrl: task.propertyUrl && isValidHttpsUrl(task.propertyUrl) ? task.propertyUrl : null, profitRate: task.profitRate.toString(), profitAmount: task.profitAmount.toString() })),
+      tasks: tasks.map((task) => ({ ...task, propertyUrl: task.propertyUrl && isValidHttpsUrl(task.propertyUrl) ? task.propertyUrl : null, profitRate: task.profitRate.toString(), profitAmount: task.profitAmount.toString(), order: task.order ? { ...task.order, amount: task.order.amount.toString(), profit: task.order.profit.toString(), finalReturnAmount: task.order.finalReturnAmount?.toString() ?? null } : null })),
       nextCursor: tasks.length === 50 ? tasks[tasks.length - 1].id : null,
     })
   } catch (error) {
@@ -367,7 +367,7 @@ export async function POST(req: Request) {
               type: 'TASK',
               title: current.status === 'REJECTED' ? 'Re-Rent activity retry submitted' : current.dayNumber === 0 ? 'Existing Re-Rent request submitted' : 'Re-Rent activity submitted',
               message:
-                `${current.dayNumber === 0 ? 'Your existing Re-Rent request' : 'Your manager-assigned Re-Rent activity'} for order ${current.order.orderCode} was submitted. No profit is credited unless the manager approves it. Settlement will complete automatically after the configured processing delay.`,
+                `${current.dayNumber === 0 ? 'Your existing Re-Rent request' : 'Your manager-assigned Re-Rent activity'} for order ${current.order.orderCode} was submitted. No revenue is credited before your manager enters and approves a final return after the configured delay.`,
             },
           })
 

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import { readJson, requireSameOrigin, handleRequestSecurityError } from '@/lib/security'
 import { creditVerifiedDailyTask } from '@/lib/daily-task-settlement'
+import { settleReRentTask } from '@/lib/rerent-settlement.mjs'
 
 function isSerializationConflict(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2034')
@@ -22,9 +23,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const { id } = await params
     if (!id || id.length > 100) return NextResponse.json({ error: 'Valid task ID is required.' }, { status: 400 })
-    const body = await readJson<{ decision?: unknown }>(request, 16 * 1024)
+    const body = await readJson<{ decision?: unknown; finalReturnAmount?: unknown }>(request, 16 * 1024)
     const decision = body?.decision
     if (decision !== 'APPROVE' && decision !== 'REJECT') return NextResponse.json({ error: 'Decision must be APPROVE or REJECT.' }, { status: 400 })
+
+    if (decision === 'APPROVE') {
+      const task = await prisma.task.findFirst({
+        where: { id, managerId: manager.id, user: { managerId: manager.id } },
+        select: { type: true },
+      })
+      if (task?.type === 'RE_RENT') {
+        const result = await settleReRentTask(prisma, {
+          taskId: id,
+          managerId: manager.id,
+          managerUserId: session.sub,
+          finalReturnAmount: body.finalReturnAmount,
+        })
+        return NextResponse.json({ ok: true, ...result })
+      }
+    }
 
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -119,6 +136,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       TASK_NOT_VERIFIED: ['Task verification could not be completed.', 409],
       WALLET_NOT_FOUND: ['The user wallet is unavailable.', 409],
       INVALID_PROFIT: ['Task profit could not be calculated.', 500],
+      INVALID_FINAL_RETURN: ['Final return must be a positive amount with no more than two decimal places and at least the original rent.', 400],
+      INVALID_REVENUE: ['Revenue could not be calculated.', 400],
+      SETTLEMENT_DELAY_ACTIVE: ['The configured Re-Rent delay has not elapsed yet.', 409],
+      INVALID_DELAY: ['Platform Re-Rent processing configuration is invalid.', 500],
+      TIME_UNAVAILABLE: ['The submitted time is unavailable for this Re-Rent task.', 409],
+      ORDER_NOT_PENDING: ['This booking is not awaiting Re-Rent settlement.', 409],
+      PAYMENT_NOT_VERIFIED: ['This booking has not been payment-confirmed.', 409],
+      TASK_ALREADY_SETTLED: ['This Re-Rent task already has a settlement ledger entry.', 409],
+      ORDER_ALREADY_PROCESSED: ['This Re-Rent booking was already settled.', 409],
     }
     if (errors[code]) return NextResponse.json({ error: errors[code][0] }, { status: errors[code][1] })
     console.error('MANAGER_TASK_REVIEW_ERROR', error)

@@ -16,20 +16,20 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const order = await prisma.order.findFirst({
       where: { id, userId: user.id, managerId: session.managerId },
       select: {
-        id: true, orderCode: true, amount: true, profit: true, profitRate: true, status: true, paymentStatus: true,
-        paymentReference: true, bookedAt: true, paymentSubmittedAt: true, paymentVerifiedAt: true, activatedAt: true,
+        id: true, orderCode: true, amount: true, profit: true, finalReturnAmount: true, profitRate: true, status: true, paymentStatus: true,
+        paymentReference: true, paymentProofUrl: true, bookedAt: true, paymentSubmittedAt: true, paymentVerifiedAt: true, activatedAt: true,
         rerentRequestedAt: true, rerentedAt: true, completedAt: true, cancelledAt: true, createdAt: true, updatedAt: true,
         property: { select: { id: true, title: true, location: true, imageUrl: true } },
         tasks: { orderBy: { createdAt: 'asc' }, take: 10, select: { id: true, type: true, title: true, status: true, dayNumber: true, profitRate: true, profitAmount: true, assignedAt: true, submittedAt: true, completedAt: true, createdAt: true } },
       },
     })
     if (!order) return NextResponse.json({ error: 'Booking not found.' }, { status: 404 })
-    const { profit: _profitSnapshot, ...safeOrder } = order
     return NextResponse.json({ order: {
-      ...safeOrder,
+      ...order,
       amount: order.amount.toString(),
+      profit: order.profit.toString(),
+      finalReturnAmount: order.finalReturnAmount?.toString() ?? null,
       profitRate: order.profitRate.toString(),
-      // profit is a historical order snapshot, not the earnings ledger. Omit it to prevent duplicate earnings display.
       tasks: order.tasks.map((task) => ({ ...task, profitRate: task.profitRate.toString(), profitAmount: task.profitAmount.toString() })),
     } })
   } catch (error) {

@@ -8,11 +8,24 @@
 
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { assertAdminBootstrapEmailAvailable, assertSeedExecutionAllowed, assertSuperAdminRepairOptIn } from '../lib/seed-safety'
 
-const prisma = new PrismaClient()
+export function buildSuperAdminRepairPatch(input: {
+  targetEmail: string
+  targetPasswordHash: string
+  needsEmailUpdate: boolean
+  needsPasswordUpdate: boolean
+}): { email?: string; passwordHash?: string } {
+  return {
+    ...(input.needsEmailUpdate ? { email: input.targetEmail } : {}),
+    ...(input.needsPasswordUpdate ? { passwordHash: input.targetPasswordHash } : {}),
+  }
+}
 
 async function fixSuperAdminEmail() {
-  console.log('Fixing Super Admin email mismatch...')
+  // These checks run before constructing a client or making database calls.
+  assertSeedExecutionAllowed(process.env)
+  assertSuperAdminRepairOptIn({ ALLOW_HOUSINGPRO_SUPER_ADMIN_REPAIR: process.env.ALLOW_HOUSINGPRO_SUPER_ADMIN_REPAIR })
   
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL
   const superAdminName = process.env.SUPER_ADMIN_NAME
@@ -40,15 +53,18 @@ async function fixSuperAdminEmail() {
     if (!existingSuperAdmin) {
       console.log('No Super Admin found. Creating new one...')
       const superAdminHash = await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD!, 12)
-      await prisma.adminUser.create({
-        data: {
-          name: process.env.SUPER_ADMIN_NAME!,
-          email: process.env.SUPER_ADMIN_EMAIL!,
-          passwordHash: superAdminHash,
-          adminType: 'SUPER_ADMIN',
-          permissions: [],
-        },
-      })
+      await prisma.$transaction(async (tx) => {
+        await assertAdminBootstrapEmailAvailable(tx, process.env.SUPER_ADMIN_EMAIL!)
+        return tx.adminUser.create({
+          data: {
+            name: process.env.SUPER_ADMIN_NAME!,
+            email: process.env.SUPER_ADMIN_EMAIL!,
+            passwordHash: superAdminHash,
+            adminType: 'SUPER_ADMIN',
+            permissions: [],
+          },
+        })
+      }, { isolationLevel: 'Serializable' })
       console.log(`Created new Super Admin: ${process.env.SUPER_ADMIN_EMAIL}`)
       return { action: 'created', email: process.env.SUPER_ADMIN_EMAIL! }
     }
@@ -59,20 +75,23 @@ async function fixSuperAdminEmail() {
     const needsEmailUpdate = existingSuperAdmin.email !== targetEmail
     const needsPasswordUpdate = !await bcrypt.compare(process.env.SUPER_ADMIN_PASSWORD!, existingSuperAdmin.passwordHash)
 
-    if (needsEmailUpdate) {
-      console.log(`Updating email from ${existingSuperAdmin.email} to ${targetEmail}`)
-      await prisma.adminUser.update({
-        where: { id: existingSuperAdmin.id },
-        data: { email: targetEmail },
-      })
-    }
-
-    if (!needsEmailUpdate && !await bcrypt.compare(process.env.SUPER_ADMIN_PASSWORD!, existingSuperAdmin.passwordHash)) {
-      console.log('Updating password hash...')
-      await prisma.adminUser.update({
-        where: { id: existingSuperAdmin.id },
-        data: { passwordHash: await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD!, 12) },
-      })
+    const repairPatch = buildSuperAdminRepairPatch({
+      targetEmail,
+      targetPasswordHash: needsPasswordUpdate ? await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD!, 12) : existingSuperAdmin.passwordHash,
+      needsEmailUpdate,
+      needsPasswordUpdate,
+    })
+    if (Object.keys(repairPatch).length > 0) {
+      console.log('Updating the explicitly requested Super Admin account fields...')
+      await prisma.$transaction(async (tx) => {
+        if (needsEmailUpdate) {
+          await assertAdminBootstrapEmailAvailable(tx, targetEmail, existingSuperAdmin.id)
+        }
+        await tx.adminUser.update({
+          where: { id: existingSuperAdmin.id },
+          data: repairPatch,
+        })
+      }, { isolationLevel: 'Serializable' })
     }
 
     // Ensure adminType is SUPER_ADMIN

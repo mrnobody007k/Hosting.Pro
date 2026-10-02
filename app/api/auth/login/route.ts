@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { createSession } from '@/lib/auth'
 import { matchesAccessToken, storeAccessToken } from '@/lib/access-token'
+import { findLoginAccountByEmail, verifyLoginAccount, type LoginAccount, type LoginRole } from '@/lib/login-account'
+import { checkLoginAttemptLimit, finalizeLoginAttempt, getLoginAttemptBuckets } from '@/lib/login-rate-limit'
 import {
   getClientIp,
   handleRequestSecurityError,
@@ -10,10 +12,6 @@ import {
   readJson,
   requireSameOrigin,
 } from '@/lib/security'
-
-const WINDOW_MS = 15 * 60 * 1000
-const MAX_IDENTIFIER_IP_FAILURES = 10
-const MAX_IP_FAILURES = 30
 
 export async function POST(req: Request) {
   try {
@@ -46,19 +44,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
     }
 
-    if (expectedRole === 'USER' || expectedRole === 'MANAGER') {
-      loginAccessSetting = await prisma.platformSetting.findFirst({
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true, customerLoginAccessToken: true, managerLoginAccessToken: true },
-      })
-      const requiredToken = expectedRole === 'USER'
-        ? loginAccessSetting?.customerLoginAccessToken
-        : loginAccessSetting?.managerLoginAccessToken
-      if (!matchesAccessToken(body.accessToken, requiredToken)) {
-        return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
-      }
-    }
-
     if (
       (!isEmail && !isPhone) ||
       password.length > 200
@@ -88,57 +73,10 @@ export async function POST(req: Request) {
      * The identifier bucket still protects the account.
      */
     const identifierKey = isEmail ? email : normalizedPhone
-    const emailKey =
-      `login:${identifierKey}|ip:${ip}`
+    const loginBuckets = getLoginAttemptBuckets(identifierKey, ip)
+    const attemptCheck = await checkLoginAttemptLimit(prisma, loginBuckets)
 
-    const ipKey =
-      ip !== 'unknown'
-        ? `ip:${ip}`
-        : null
-
-    const cutoff = new Date(
-      Date.now() - WINDOW_MS,
-    )
-
-    await prisma.loginAttempt.deleteMany(
-      {
-        where: {
-          createdAt: {
-            lt: cutoff,
-          },
-        },
-      },
-    )
-
-    const identifierFailures =
-      await prisma.loginAttempt.count({
-        where: {
-          key: emailKey,
-          createdAt: {
-            gte: cutoff,
-          },
-        },
-      })
-
-    const ipFailures = ipKey
-      ? await prisma.loginAttempt.count(
-          {
-            where: {
-              key: ipKey,
-              createdAt: {
-                gte: cutoff,
-              },
-            },
-          },
-        )
-      : 0
-
-    if (
-      identifierFailures >=
-        MAX_IDENTIFIER_IP_FAILURES ||
-      ipFailures >=
-        MAX_IP_FAILURES
-    ) {
+    if (!attemptCheck.allowed) {
       return NextResponse.json(
         {
           error:
@@ -154,29 +92,34 @@ export async function POST(req: Request) {
       )
     }
 
-    type LoginAccount = {
-      id: string
-      status: 'ACTIVE' | 'SUSPENDED' | 'DISABLED'
-      passwordHash: string
-      role: 'ADMIN' | 'MANAGER' | 'USER'
-      managerId?: string
+    if (expectedRole === 'USER' || expectedRole === 'MANAGER') {
+      loginAccessSetting = await prisma.platformSetting.findFirst({
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, customerLoginAccessToken: true, managerLoginAccessToken: true },
+      })
+      const requiredToken = expectedRole === 'USER'
+        ? loginAccessSetting?.customerLoginAccessToken
+        : loginAccessSetting?.managerLoginAccessToken
+      if (!matchesAccessToken(body.accessToken, requiredToken)) {
+        const failedAccessCheck = await finalizeLoginAttempt(prisma, loginBuckets, attemptCheck, async () => false)
+        if (failedAccessCheck.rateLimited) {
+          return NextResponse.json(
+            { error: 'Too many failed login attempts. Please try again later.' },
+            { status: 429, headers: { 'Retry-After': '900' } },
+          )
+        }
+        return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
+      }
     }
 
     let account: LoginAccount | null = null
     if (isEmail) {
-      const [admin, manager, user] = await Promise.all([
-        prisma.adminUser.findUnique({ where: { email } }),
-        prisma.manager.findUnique({ where: { email } }),
-        prisma.user.findUnique({ where: { email } }),
-      ])
-      const matches = [admin, manager, user].filter(Boolean)
-      if (matches.length > 1) {
+      const lookup = await findLoginAccountByEmail(prisma, email, expectedRole as LoginRole)
+      if (lookup.collision) {
         console.error('LOGIN_ACCOUNT_COLLISION', { email })
         return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
       }
-      if (admin) account = { id: admin.id, status: admin.status, passwordHash: admin.passwordHash, role: 'ADMIN' }
-      else if (manager) account = { id: manager.id, status: manager.status, passwordHash: manager.passwordHash, role: 'MANAGER', managerId: manager.id }
-      else if (user) account = { id: user.id, status: user.status, passwordHash: user.passwordHash, role: 'USER', managerId: user.managerId }
+      account = lookup.account
     } else {
       // Phone numbers are not unique in the current schema. Never guess between matches.
       const matches = await prisma.user.findMany({
@@ -190,26 +133,17 @@ export async function POST(req: Request) {
       }
     }
 
-    if (
-      !account ||
-      account.status !== 'ACTIVE' ||
-      (expectedRole !== undefined && account.role !== expectedRole) ||
-      !(await bcrypt.compare(password, account.passwordHash))
-    ) {
-      const attemptData =
-        ipKey
-          ? [
-              { key: emailKey },
-              { key: ipKey },
-            ]
-          : [{ key: emailKey }]
+    const loginOutcome = await finalizeLoginAttempt(prisma, loginBuckets, attemptCheck, () =>
+      verifyLoginAccount(account, expectedRole as LoginRole, password, bcrypt.compare)
+    )
 
-      await prisma.loginAttempt.createMany(
-        {
-          data: attemptData,
-        },
-      )
-
+    if (!loginOutcome.authenticated) {
+      if (loginOutcome.rateLimited) {
+        return NextResponse.json(
+          { error: 'Too many failed login attempts. Please try again later.' },
+          { status: 429, headers: { 'Retry-After': '900' } },
+        )
+      }
       return NextResponse.json(
         {
           error:
@@ -219,17 +153,11 @@ export async function POST(req: Request) {
       )
     }
 
-    /*
-     * Successful authentication clears this
-     * sign-in identifier's failure history.
-     */
-    await prisma.loginAttempt.deleteMany(
-      {
-        where: {
-          key: emailKey,
-        },
-      },
-    )
+    // The verifier can only succeed with a non-null account; retain an explicit
+    // guard here so TypeScript and the route boundary both enforce that fact.
+    if (!account) {
+      return NextResponse.json({ error: 'Invalid sign-in details.' }, { status: 401 })
+    }
 
     await createSession({
       sub: account.id,

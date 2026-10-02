@@ -50,6 +50,7 @@ export async function GET(request: Request) {
           status: true,
           managerId: true,
           membershipStatus: true,
+          displayTier: true,
           approvedAt: true,
           officialMemberAt: true,
           createdAt: true,
@@ -114,7 +115,7 @@ export async function GET(request: Request) {
     }
 
     const includeFinancials = new URL(request.url).searchParams.get('includeFinancials') === '1'
-    const [transactions, setting, orderGroups, taskGroups, totalProfit] = await Promise.all([
+    const [transactions, setting, orderGroups, taskGroups, totalProfit, recordedReRentRevenue] = await Promise.all([
       includeFinancials ? prisma.transaction.findMany({
         where: {
           userId: user.id,
@@ -138,11 +139,13 @@ export async function GET(request: Request) {
       prisma.order.groupBy({ where: { userId: user.id, managerId: session.managerId }, by: ['status'], _count: { _all: true } }),
       prisma.task.groupBy({ where: { userId: user.id, managerId: session.managerId }, by: ['status'], _count: { _all: true } }),
       prisma.transaction.aggregate({ where: { userId: user.id, managerId: session.managerId, type: 'PROFIT' }, _sum: { amount: true }, _count: { _all: true } }),
+      prisma.order.aggregate({ where: { userId: user.id, managerId: session.managerId, status: { in: ['RE_RENTED', 'COMPLETED'] }, finalReturnAmount: { not: null } }, _sum: { profit: true } }),
     ])
 
     // Profit ledger entries are authoritative. Order.profit is a snapshot of
     // Re-Rent profit and must not be counted as an additional earning.
-    const totalProfitAmount = new Decimal(totalProfit._sum.amount?.toString() ?? '0')
+    const newReRentRevenue = new Decimal(recordedReRentRevenue._sum.profit?.toString() ?? '0')
+    const totalProfitAmount = new Decimal(totalProfit._sum.amount?.toString() ?? '0').plus(newReRentRevenue)
     const counts = (groups: Array<{ status: string; _count: { _all: number } }>, statuses: string[]) => groups.filter((group) => statuses.includes(group.status)).reduce((sum, group) => sum + group._count._all, 0)
     let earnings: { total: string; taskProfit: string; rerentProfit: string; day2TaskProfit: string; day3TaskProfit: string; taskCount: number } | null = null
     let walletSummary: { welcomeBonus: string; approvedDeposits: string; approvedWithdrawals: string } | null = null
@@ -155,7 +158,7 @@ export async function GET(request: Request) {
         prisma.deposit.aggregate({ where: { userId: user.id, managerId: session.managerId, status: 'APPROVED' }, _sum: { amount: true } }),
         prisma.withdrawal.aggregate({ where: { userId: user.id, managerId: session.managerId, status: 'APPROVED' }, _sum: { amount: true } }),
       ])
-      const rerentProfitAmount = new Decimal(rerentProfit._sum.amount?.toString() ?? '0')
+      const rerentProfitAmount = new Decimal(rerentProfit._sum.amount?.toString() ?? '0').plus(newReRentRevenue)
       earnings = {
         total: totalProfitAmount.toFixed(2), taskProfit: totalProfitAmount.minus(rerentProfitAmount).toFixed(2),
         rerentProfit: rerentProfitAmount.toFixed(2), day2TaskProfit: new Decimal(day2Profit._sum.amount?.toString() ?? '0').toFixed(2),
@@ -189,7 +192,11 @@ export async function GET(request: Request) {
         totalProfit: totalProfitAmount.toFixed(2),
       },
       transactions: transactions.map((transaction) => {
-        const note = transaction.type === 'WELCOME_BONUS'
+        const note = transaction.type === 'RERENT_SETTLEMENT'
+          ? 'Manager-approved Re-Rent final return credited'
+          : transaction.type === 'ADJUSTMENT' && transaction.note?.startsWith('Rent debit for order ')
+            ? 'Original rent deducted from wallet'
+            : transaction.type === 'WELCOME_BONUS'
           ? 'Welcome balance credited'
           : transaction.type === 'PROFIT' && transaction.note?.startsWith('Re-Rent profit for order ')
             ? 'Re-Rent profit credited'

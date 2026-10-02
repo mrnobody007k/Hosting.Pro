@@ -28,7 +28,7 @@ export default function ActivityPage() {
   const visible = useMemo(() => filter === 'ALL' ? events : events.filter((event) => event.kind === filter), [events, filter])
 
   return <UserShell userName={account?.user?.name || 'Client'} membership={customerStatus(account?.user?.membershipStatus)}>
-    <CustomerPageHeader eyebrow="YOUR ACCOUNT" title="Activity" description="A recent timeline of your bookings, tasks, wallet, and account notifications." />
+    <CustomerPageHeader eyebrow="YOUR ACCOUNT" title="Activity" description="A recent timeline of Rent / Re-Rent bookings, tasks, wallet revenue and account updates." />
     <div className="customer-activity-filters" aria-label="Filter activity">
       {['ALL', 'ORDER', 'TASK', 'DEPOSIT', 'WITHDRAWAL', 'WALLET', 'NOTIFICATION'].map((kind) => <button key={kind} type="button" className={filter === kind ? 'active' : ''} onClick={() => setFilter(kind)}>{kind === 'ALL' ? 'All activity' : kind === 'WALLET' ? 'Wallet' : `${kind.charAt(0)}${kind.slice(1).toLowerCase()}s`}</button>)}
     </div>

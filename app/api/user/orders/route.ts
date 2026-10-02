@@ -65,6 +65,7 @@ export async function GET(request: Request) {
         orderCode: true,
         amount: true,
         profit: true,
+        finalReturnAmount: true,
         profitRate: true,
         status: true,
         paymentStatus: true,
@@ -122,6 +123,7 @@ export async function GET(request: Request) {
         ...order,
         amount: order.amount.toString(),
         profit: order.profit.toString(),
+        finalReturnAmount: order.finalReturnAmount?.toString() ?? null,
         profitRate: order.profitRate.toString(),
         tasks: order.tasks.map((task) => ({
           ...task,
@@ -495,7 +497,7 @@ export async function POST(req: Request) {
         amount: result.amount.toString(),
       },
       paymentMessage:
-        'Payment is completed separately. Follow the instructions shown for your account, then submit your payment reference or proof.',
+        'Payment is completed separately. Follow the payment instructions shown for your account, then submit your payment reference or proof.',
     })
   } catch (error) {
     const securityResponse =
