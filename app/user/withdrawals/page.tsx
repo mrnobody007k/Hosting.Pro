@@ -74,14 +74,14 @@ export default function WithdrawalsPage() {
       <div className="withdraw-available"><span>Available balance</span><strong>{money(data?.availableBalance)}</strong><small>Pending withdrawal requests are reserved until they are completed or declined.</small></div>
       {message && <div className="customer-inline-success" role="status">{message}</div>}
       {actionError && <div className="customer-inline-error" role="alert">{actionError}</div>}
-      <form className="customer-form customer-surface withdraw-form" onSubmit={review}>
+      {user?.hasPaymentPassword ? <form className="customer-form customer-surface withdraw-form" onSubmit={review}>
         <h2>New withdrawal request</h2>
         <label>Amount (INR)<input type="number" min="0.01" max="100000000000000" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label>
         <label>Payout method<select value={method} onChange={(event) => setMethod(event.target.value)}><option>Bank</option><option>Wallet</option><option>Other</option></select></label>
         <label>Account details<textarea value={accountDetails} onChange={(event) => setAccountDetails(event.target.value)} maxLength={1000} placeholder="Enter the details needed to send your payout" required /></label>
         <label>Payment password<input type="password" value={paymentPassword} onChange={(event) => setPaymentPassword(event.target.value)} autoComplete="current-password" minLength={6} maxLength={200} required /></label>
         <button disabled={busy}>{busy ? "Submitting…" : "Submit withdrawal request"}</button>
-      </form>
+      </form> : <div className="customer-surface withdraw-form" role="status"><h2>Withdrawal setup unavailable</h2><p>No payment password is configured for this account. Payment passwords can only be created during signup. Contact Housing.pro support for help with this account.</p></div>}
       {confirming && <div className="withdraw-confirm-backdrop" role="presentation"><section className="withdraw-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="withdraw-confirm-title"><span className="withdraw-confirm-icon" aria-hidden="true">₹</span><h2 id="withdraw-confirm-title">Confirm withdrawal request</h2><p>Submit a request for <strong>{money(amount)}</strong> using <strong>{method}</strong>? The amount will be reserved while your request is reviewed. Housing.pro does not process the payout automatically.</p>{actionError && <div className="customer-inline-error" role="alert">{actionError}</div>}<div><button type="button" onClick={() => setConfirming(false)} disabled={busy}>Go back</button><button type="button" onClick={() => void submit()} disabled={busy}>{busy ? "Submitting…" : "Confirm request"}</button></div></section></div>}
       <section className="customer-surface customer-history">
         <h2>Withdrawal history</h2>

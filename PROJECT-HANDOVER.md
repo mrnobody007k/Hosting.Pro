@@ -1374,3 +1374,289 @@ This pre-authorization checkpoint is superseded by the later sanitized-example r
 ## Remaining external verification and next action
 
 Production DB identity/read-only role/migration state, actual Admin login, Supabase Cron/Vault configuration and execution history, canonical domain, deployed route artifact presence, production secret-length validation, and Vercel timeout compatibility remain unverified. The local commit is not production evidence. The next action is owner/operator review of the local commit, then obtain separate authorization before any push, merge, deploy, or remote verification.
+
+## Release-build and production-decision checkpoint (2026-10-03)
+
+### Verified in the isolated worktree
+
+- Local branch `codex/housingpro-release-20261002` is at handover commit `d77642873a4d370445b7a7e6bf0e2ed183054324`; its parent is source commit `6d6b047fbeb3204e035dd6956a3f5d339392396f`, whose parent is `a1dee6ead64b482037096db8b370696e6539b545`. The worktree was clean before this checkpoint's handover append.
+- The source commit contains 108 changed paths (60 modified, 47 added, one intentional removal of `scripts/rerent-worker.mjs`); the follow-up commit changes only this handover. A committed-path scan found zero machine-specific artifacts (`.vercel`, `.netlify`, `node_modules`, `.next`, test outputs, TypeScript build info, or real `.env*` files). `.env.example` is included as the only environment sample.
+- The sanitized `.env.example` check confirmed the exact approved nonfunctional DATABASE_URL placeholder, `SCHEDULER_SERVICE_SECRET`, no obsolete `RERENT_SCHEDULER_SECRET`, and zero non-placeholder database/secret-like values. The prior generic URI scan matched the placeholder's `@`; that was a false positive, not evidence of a credential.
+- Both `app/api/admin/clients/[id]/signup/route.ts` and `app/api/user/tier/route.ts` are tracked in HEAD. All six required migration directories are present: `0_init`, `20260928013424_add_admin_super_staff_and_login_tokens`, `20260929120000_add_verified_task_status`, `20260930031225_admin_permissions_not_null`, `20261001000000_manager_entered_rerent_return`, and `20261002000000_user_display_tier`.
+- The original checkout remains `main` at `a1dee6ead64b482037096db8b370696e6539b545`, with 61 changed tracked paths and 47 untracked paths. Its index SHA-256 remains `C540932C0A0BD52D17DF3F8BF67F815BA93378307BC9246D222F60A20942206F`, matching the prior checkpoint. No original checkout file or index was changed in this verification.
+
+### Resource and test results
+
+- Resource check: free physical RAM ranged from 0.83 to 0.99 GiB; committed memory was 11.18 GiB of a 13.58 GiB limit (2.40 GiB commit headroom; 82% committed); D: had 40.48 GiB free and C: had 3.35 GiB free. User processes were left running. Full `npm run build` was not started due to low physical and commit headroom; this is deferred, not a build failure or success.
+- Attempted `npm run test:unit -- --test-concurrency=1`. The runner stopped before discovering tests because this Git worktree has no `node_modules/tsx/dist/cli.mjs` (`MODULE_NOT_FOUND`); therefore the full unit suite did not run and has no pass/fail result. No dependency installation or source change was made. Previously recorded focused results (19/19 approval/tier tests, 10/10 config/route-policy tests, and 2/2 inventory tests) remain earlier evidence and were not rerun because source code did not change.
+- No remote database query, migration, write, deployment-platform setting change, push, merge, or deployment was performed.
+
+### Production-source evidence and release decision
+
+- The latest read-only Vercel metadata recorded earlier in this handover identified project `housing-pro` as GitHub-linked (`githubDeployment=1`), repository `Hosting.Pro`, Production branch `main`, with observed deployment commit `a1dee6ead64b482037096db8b370696e6539b545`. The two local release commits are on `codex/housingpro-release-20261002` only and have not been pushed or merged; the observed Production commit therefore does not establish that these routes are deployed.
+- Git-provider source is evidenced by that metadata; whether Vercel automatically deploys pushes to `main` or requires a manual promotion is still unverified because deployment-trigger settings were not inspected. `gitDirty=1` in old metadata does not prove which local source archive, if any, was built.
+- The local `.env.example`, route inclusion, migrations, and previous source tests do not establish production database state, real Admin authentication, signup behavior, deployed artifact contents, scheduler secret validity, Supabase Cron execution, runtime timeout compatibility, or canonical domain.
+
+### Exact next action and approval
+
+1. When sufficient RAM is available, provide dependencies in this isolated worktree without modifying the original checkout, then run the complete unit suite and full `npm run build`; record their actual exit codes. (Current unit-suite blocker is the missing local dependency tree.)
+2. Reconfirm with the release owner whether Vercel `housing-pro` deploys automatically from `Hosting.Pro` `main` or needs manual promotion. Because these commits are local only, obtain explicit approval to publish/merge `d77642873a4d370445b7a7e6bf0e2ed183054324` (or its reviewed source parent) to the confirmed Production source. If that action triggers deployment automatically, that approval must explicitly include the resulting deployment; otherwise obtain separate deployment approval before promotion.
+3. After authorized publication/deployment, verify the deployed commit and inspect its artifact for the two required API routes. Keep production database/migration, actual Admin login, scheduler/Cron, secret validation, and canonical-domain checks as distinct operator verifications.
+
+## Isolated dependency restoration and Vercel source check (2026-10-03)
+
+### Reproducible local verification
+
+- Worktree started at HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324`, branch `codex/housingpro-release-20261002`; only the already documented handover edit was present. `package.json` and the tracked npm v3 `package-lock.json` agree on root dependency maps and package version. Runtime was Node `v24.21.0`, npm `11.19.0`; no `node_modules` directory existed, explaining the earlier missing `tsx` CLI.
+- Resource check before install: D: free 40.48 GiB, C: free 3.35 GiB; free physical RAM about 0.98 GiB and 2.31 GiB available commit. `node_modules/` is ignored by `.gitignore`. Ran `npm ci --no-audit --no-fund` in this isolated worktree only: **exit 0**, installed 74 packages, and postinstall generated Prisma Client 6.19.3. No original-checkout dependency copy was used. `package.json` and `package-lock.json` remain unchanged versus HEAD; no tracked dependency change was made.
+- Full unit suite: `npm run test:unit -- --test-concurrency=1` with Node heap capped at 768 MiB: **exit 0, 63 passed, 0 failed, duration about 9 seconds**. Expected scheduler failure-path test log markers appeared for tests that assert batch isolation; the suite passed.
+- TypeScript: `npx tsc --noEmit --pretty false`: **exit 0**.
+- Prisma schema: `npx prisma validate --schema prisma/schema.prisma` with a dummy loopback DATABASE_URL supplied only to satisfy schema validation: **exit 0, schema valid**. This did not connect to any database.
+- Rechecked free RAM after tests/typecheck: 1.05–1.12 GiB physical, about 2.27–2.42 GiB commit headroom. Full `npm run build` was not started because memory remains inadequate; no build result is claimed. No E2E, migration, seed, or database-backed test was run.
+- `node_modules/` remains ignored. `git diff --check` and the release-inventory tests are to be recorded after this handover append; no source, package, lockfile, business-rule, or original-checkout change was made.
+
+### Read-only Vercel evidence
+
+- Vercel CLI `61.1.0` was already available and authenticated; only read commands were used. `vercel project inspect prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1 --format json --non-interactive` returned project ID `prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1`, name `housing-pro`, Next.js framework, Node `24.x`. Its exposed project metadata did not include Git trigger/ignored-build settings.
+- `vercel list prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1 --environment production --limit 5 --format json --non-interactive` returned five latest Production deployments, all `READY`, with Git metadata consistently naming repository `Hosting.Pro`, branch `main`, commit `a1dee6ead64b482037096db8b370696e6539b545`, `githubDeployment=1`, and `gitDirty=1`. Read-only inspection of the latest listed deployment also returned `READY` and the same deployment URL/creation identity. No secret values were requested or printed.
+- Vercel's current Git deployment documentation says connected Git projects normally create deployments on pushes/merges to the production branch and that Ignore Build Step or Git deployment settings can suppress them ([Git deployments](https://vercel.com/docs/git), [Project settings / Ignored Build Step](https://vercel.com/docs/project-configuration/project-settings), [Git configuration](https://vercel.com/docs/project-configuration/git-configuration)). This is platform-default behavior, **not confirmation of this project's effective setting**. The CLI project metadata exposed here omits `git.deploymentEnabled`, Ignore Build Step, and full branch tracking settings. Therefore it remains unverified whether publishing to `Hosting.Pro/main` will automatically create/promote Production deployment; owner/operator must inspect `housing-pro` → Settings → Git and Build & Deployment before publication.
+- Both release commits remain local on `codex/housingpro-release-20261002`; no push, merge, deployment, production setting change, or database operation occurred. The source deployment evidence is the older `a1dee6e…`, not these local commits.
+
+### Remaining approval and action
+
+1. Recheck current memory; run full `npm run build` only with adequate headroom.
+2. Owner/operator confirms the `housing-pro` project's Git deployment enablement, ignored-build rule, and Production branch in dashboard.
+3. Obtain explicit approval to publish/merge local commit `d77642873a4d370445b7a7e6bf0e2ed183054324` (or its source commit `6d6b047fbeb3204e035dd6956a3f5d339392396f`) into `Hosting.Pro/main`. That approval must explicitly permit the automatic Production deployment if the dashboard setting shows a push triggers one; otherwise secure separate approval for manual promotion.
+4. After authorized publication/deployment, verify the deployed commit and route artifacts. Production DB/migration state, real Admin login/signup behavior, scheduler/Cron execution and secret validity, runtime timeout, and canonical domain remain independent live-verification blockers.
+
+## Follow-up: build resource gate and effective Git-setting access (2026-10-03)
+
+- Re-read this handover and verified isolated branch `codex/housingpro-release-20261002`, HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324`, parent source commit `6d6b047fbeb3204e035dd6956a3f5d339392396f`. The only tracked worktree modification is this handover; `node_modules/` is ignored. No release commit was amended or changed.
+- Current resource check: **1.01 GiB free physical RAM**, 11.37 GiB committed of a 13.58 GiB commit limit (2.21 GiB available; 83% committed), D: 39.66 GiB free, C: 3.35 GiB free. User processes were left running. Full `npm run build` was not attempted because this is still inadequate memory headroom; build remains neither passed nor failed.
+- No application source changed since the already recorded successful `npm ci`, 63/63 unit tests, TypeScript, Prisma validation, and 2/2 inventory tests; those checks were not repeated.
+- Read-only `vercel project inspect` against exact confirmed project ID `prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1` returned the matching project name `housing-pro`, framework Next.js, and Node `24.x`. Its 11 exposed fields did **not** include a Git repository/link object, Production branch setting, `git.deploymentEnabled`, ignored-build-step setting/command, or team override/policy. No settings endpoint available through the authenticated CLI was used to read those missing fields. Earlier project-ID deployment metadata still evidences READY GitHub-sourced Production deployments from `Hosting.Pro/main` at commit `a1dee6e…`; that is deployment history, not proof of current effective settings or whether a new push will deploy.
+- **Exact settings access needed:** a read-only view from a Vercel project/team administrator (or operator with project Settings visibility) for `housing-pro` → Settings → Git and Build & Deployment: repository connection, Production branch, Git deployment enablement, ignored build-step command and applicable team policy. Until those effective values are supplied, automatic Production behavior remains unverified. No general platform default was treated as this project's setting.
+- No push, publish, merge, promotion, deployment, settings change, production database/migration/DNS operation, or secret access occurred. The original checkout was not used or modified.
+
+**Next action:** obtain the read-only project/team settings evidence above; recheck RAM later and run the full build only when adequate headroom is available. Publishing still requires a separate explicit approval that covers any automatic Production deployment the verified settings show would follow.
+
+## Administrator handoff: read-only Vercel deployment settings (2026-10-03)
+
+Please ask a Vercel project/team administrator to inspect the confirmed project **housing-pro** (`prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1`) without changing settings:
+
+1. In the Vercel Dashboard, select the team that owns this exact project ID, then open **housing-pro → Settings → Git**. Report the connected Git repository, configured Production Branch, whether Git deployments are enabled for that branch, and any project/team deployment restrictions.
+2. Open **housing-pro → Settings → Build & Deployment**. Report the exact **Ignored Build Step** mode/command (or that none is configured) and whether it can skip a push to the Production Branch. Do not run the command or edit it.
+3. State plainly whether a normal push/merge to `Hosting.Pro/main` will automatically create/promote a Production deployment or instead requires manual action. The `main` value is the branch observed on existing deployments; verify the configured value in Settings.
+4. Send only those settings/status facts, with project ID visible for identity confirmation. Do not send environment-variable values, tokens, connection strings, or other secrets; no screenshots are necessary.
+
+Until this read-only confirmation arrives, effective deployment behavior stays **unverified**. Do not publish the local commits as part of this check.
+
+## Full isolated production build verification (2026-10-03)
+
+- Rechecked resources before build: 1.91 GiB free physical RAM and 8.24 GiB commit headroom (40% committed), with 34.34 GiB free on D: and 6.96 GiB on C:. This was sufficient to attempt the full build without stopping user processes.
+- Ran the complete command `npm run build` in this isolated release worktree: **exit 0**. Next.js 16.3.6 Turbopack compiled successfully in 47 seconds, completed its TypeScript phase in 22.7 seconds, generated all 90 static pages, and finalized production optimization. This is the first verified full build for this release worktree; it is a local build only.
+- The build route table and generated server artifacts contain `/api/admin/clients/[id]/signup`, `/api/user/tier`, and `/api/internal/scheduler/process`. The corresponding `.next/server/app/.../route.js` artifacts were confirmed locally. This does not show that any of these routes are deployed to Vercel Production.
+- Post-build resource check: 2.32 GiB free physical RAM, 8.46 GiB commit headroom (38% committed). `git diff --check` passed. Worktree remains at HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324`; only `PROJECT-HANDOVER.md` is modified. Build output is ignored and did not alter tracked application/package files.
+- The previously recorded full unit suite (63/63), TypeScript check, Prisma schema validation, npm ci, and release-inventory tests remain the observed results; no application source changed, so they were not rerun.
+
+### Production status stays separate
+
+The latest read-only Vercel Production deployment evidence remains `Hosting.Pro/main` at `a1dee6ead64b482037096db8b370696e6539b545`, with `gitDirty=1`. The local build and route artifacts do not prove deployment of local commits `6d6b047…`/`d776428…`. Effective Git deployment settings still require the read-only administrator handoff above (repository, configured Production Branch, deployment enablement, ignored-build rule, team policy, and push-trigger behavior). Production database/migrations, real Admin login and signup effects, Supabase Cron/run history, scheduler secret validity, runtime timeout, and canonical domain remain unverified.
+
+**Next verifiable action:** obtain the specified Vercel Settings readout from a project/team administrator. Keep local commits unpublished until separate approval explicitly covers publishing and any automatic Production deployment the verified settings show.
+
+## Final local/security verification addendum (2026-10-03)
+
+### Confirmed policy defect fixed
+
+- The owner-approved rule allows account and payment passwords to be identical. `app/api/user/security/payment-password/route.ts` incorrectly rejected an identical replacement after validating the account password. Removed only that distinct-password guard; current account-password authentication, current-payment-password verification when already set, confirmation matching, password hashing, serializable update, and audit logging remain intact.
+- Added `tests/payment-password-policy.test.ts` for registration and payment-password update policy. Focused command `node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/payment-password-policy.test.ts`: **exit 0, 2/2 passed**.
+- After this source change, `npx tsc --noEmit --pretty false`: **exit 0**. Full `npm run build`: **exit 0**; Next.js 16.3.6 compiled, TypeScript completed, and all 90 static pages generated. Build route output includes signup override, User tier, and scheduler process endpoints. This remains local build evidence only.
+
+### Live metadata checked without secret values
+
+- `vercel env ls production --project prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1 --non-interactive` returned successfully. Output was filtered in memory; only environment variable names were reported: `AUTH_SECRET`, `DATABASE_URL`, `SCHEDULER_SERVICE_SECRET`. No values were requested or displayed; this confirms name presence only, not secret validity/length.
+- Vercel metadata and deployment-history facts remain those recorded above: confirmed project ID/name `housing-pro`, READY Production deployments from `Hosting.Pro/main` at `a1dee6e…`, and effective Git deployment/ignored-build/team settings are not exposed by this CLI response. Local release commits are not deployed evidence.
+- Latest inspected Production deployment had only the two generated aliases `housing-pro.vercel.app` and `housing-pro-mrnobody007k.vercel.app`. A public HEAD request to `https://housing-pro.vercel.app/` returned **200**, `Server: Vercel`, and a Vercel request ID. The canonical custom domain remains unconfirmed; no other hostname was guessed or queried.
+
+### Database and scheduler access limits
+
+- `supabase`, `psql`, and `pg_isready` CLIs were not found. The tracked tree has no Supabase platform config (only Prisma's migration lock). Owner-confirmed candidate Production Supabase ref remains `xopbnpadjtnmolchxyyo`, but no available access established an existing least-privilege read-only PostgreSQL role or safely exposed DB target credentials. No remote DB connection/query was made. Production database identity, live schema drift, and migration history are therefore **not verified**.
+- The production Vercel variable name `SCHEDULER_SERVICE_SECRET` exists, but its value/length was not fetched. Supabase Cron job definition, Vault secret-name presence, and execution history remain unverified because authenticated Supabase Dashboard/management access is unavailable. No settlement endpoint was invoked.
+- Exact operator evidence required: (a) the previously specified read-only `housing-pro` Settings → Git and Build & Deployment facts; (b) from an authorized Supabase project operator, project-ref identity and a read-only query result for database/user/read-only status, `prisma_migrations`, and schema comparison using an already authorized read-only role; (c) Cron schedule/destination/recent run status and Vault secret *name/presence only*, never contents. No credentials or secret values should be sent in chat.
+
+### Worktree and release status
+
+- Source commit remains `6d6b047fbeb3204e035dd6956a3f5d339392396f`; handover commit remains HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324`. New local, uncommitted changes are the payment-password route correction, its focused test, and this handover addendum. No commit/push/deploy or production change occurred. `git diff --check` ran after this append and passed (exit 0).
+- Previously observed 63/63 unit suite, TypeScript/Prisma validation, and previous full build are earlier evidence; the only test rerun for this targeted code change was 2/2 password-policy tests, followed by current TypeScript and full build.
+
+**Next action unlocking production verification:** an authorized platform operator provides the read-only Vercel settings facts and Supabase identity/migration/Cron evidence described above, without sharing credentials. Keep the local changes unpublished until separate publishing/deployment approval explicitly covers any automatic Production deployment.
+
+## Payment-password policy audit and implementation (2026-10-03)
+
+### Enforced policy
+
+- Signup is the only account flow that accepts/creates a payment password. `app/api/user/register/route.ts` independently bcrypt-hashes the account password and payment password at cost 12, persists only `passwordHash` and `paymentPasswordHash`, and does not compare the two plaintext values for inequality. Signup still validates payment-password confirmation. The two passwords may be identical.
+- Withdrawal is the only feature that accepts and verifies the payment password. `app/api/user/withdrawals/route.ts` checks the active authenticated User, verifies with `bcrypt.compare` before entering the balance reservation transaction, and checks the hash did not change before reserving balance/creating the request. The UI asks for the password only when the overview reports a signup hash exists.
+- Removed the post-signup setter/change API at `app/api/user/security/payment-password/route.ts` and the Settings form/call. The Settings page now explains the signup-only policy. The profile link description no longer claims Settings changes the payment password.
+- Accounts whose nullable `paymentPasswordHash` is absent cannot make withdrawals: the form is withheld and the API returns 409 with signup-only/support guidance. No backfill, password reset, database write, or schema change was made. Support handling for legacy accounts without a signup hash remains an operator/product process; do not reintroduce a post-signup setter without changing this owner policy.
+- Login, booking/payment submission, daily task, task settlement, Re-Rent, and Manager Re-Rent sources do not request or verify a payment password. The development seed's shared bcrypt hash is only fixture setup; it demonstrates identical values are accepted and does not store plaintext. Schema/migration retain the nullable hash field for legacy compatibility.
+- No plaintext password was added to persisted audit/notification metadata or application logs in the inspected signup/withdrawal flows.
+
+### Regression tests and verification
+
+- Added `tests/payment-password-policy.test.ts` with four focused source-contract tests for signup hashing and identical values, withdrawal verification before the reservation transaction plus hash-race guard, no post-signup endpoint/UI, and absence from login/booking/task/Re-Rent routes.
+- Command `node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/payment-password-policy.test.ts tests/login-account.test.ts`: **exit 0, 9/9 passed**.
+- `npx tsc --noEmit --pretty false` initially found a stale generated `.next/types/validator.ts` reference after the route removal. Full `npm run build` regenerated the route type manifest, compiled successfully, ran TypeScript, and generated **89/89** static pages; **exit 0**. Follow-up `npx tsc --noEmit --pretty false`: **exit 0**.
+- Full build command: `npm run build`; observed current free physical memory 1.70 GiB, free commit 7.07 GiB, and free D: disk 34.25 GiB. No process was killed and no cache was cleared.
+- `git diff --check`: **exit 0** (only Git line-ending conversion warnings for edited files). Prisma schema/migrations were not changed and no database was accessed.
+
+### Files changed in this policy update
+
+- Modified: `app/api/user/withdrawals/route.ts`, `app/user/profile/page.tsx`, `app/user/settings/page.tsx`, `app/user/withdrawals/page.tsx`.
+- Deleted: `app/api/user/security/payment-password/route.ts` (post-signup setter endpoint).
+- Added: `tests/payment-password-policy.test.ts`.
+- `PROJECT-HANDOVER.md` updated with this evidence. No environment files, database data, production configuration, Git index, remote repository, or deployment were changed.
+- Current branch/head remains `codex/housingpro-release-20261002` / `d77642873a4d370445b7a7e6bf0e2ed183054324`; changes are local and uncommitted. Production verification status is unchanged: these local results do not prove deployment.
+
+**Remaining action:** follow the existing release approval procedure before publishing this change. Separately determine an approved support disposition for any legacy User lacking `paymentPasswordHash`; do not enable post-signup password creation under the current rule.
+
+## Release audit continuation — payment policy, source checks, and live evidence (2026-10-03)
+
+### Current checkout preservation
+
+- Isolated release worktree: `D:\marketplace-platform-phase5\housingpro-release-worktree-20261002`, branch `codex/housingpro-release-20261002`, HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324` (unchanged); no staged entries.
+- Current isolated worktree entries: modified `PROJECT-HANDOVER.md`, `app/api/user/withdrawals/route.ts`, `app/user/profile/page.tsx`, `app/user/settings/page.tsx`, `app/user/withdrawals/page.tsx`; deleted `app/api/user/security/payment-password/route.ts`; untracked `tests/payment-password-policy.test.ts` and `tests/signup-ownership.test.ts`. No `.env*` path is changed. The `git diff --check` check after all edits passed (exit 0; Git reports expected LF-to-CRLF conversion warnings only).
+- Read-only original-checkout status at `D:\marketplace-platform-phase5\FINAL-AUDITED-INSPECT`: branch `main`, HEAD `a1dee6ead64b482037096db8b370696e6539b545`, 61 tracked-change entries, 47 untracked entries, zero staged entries. These match the previously recorded state; the original checkout was not edited.
+
+### Payment-password rules independently rechecked
+
+- Current source references are limited to User registration, withdrawal verification, withdrawal eligibility display (`hasPaymentPassword` boolean only), nullable legacy schema/initial migration, and development/test fixtures. There is no login, booking, task, task settlement, Re-Rent, or Manager Re-Rent comparison/request. The post-signup setter route and Settings form are absent.
+- `app/api/user/register/route.ts` validates the signup payment password/confirmation and independently calls bcrypt cost 12 for account and payment credentials, stores only the resulting hashes, and derives Manager ownership from an active referral code; it accepts no client-supplied `managerId`. Account/payment equality is permitted. Signup audit metadata contains neither plaintext nor hash. The seed fixture derives both demo hashes from the same bcrypt hash and does not contain plaintext credentials.
+- `app/api/user/withdrawals/route.ts` is the sole verification endpoint. It requires the authenticated active User, valid withdrawal fields and payment password; verifies with bcrypt before the serializable reservation/create transaction; checks that the hash has not changed; and returns without a debit/refund path. A missing nullable hash yields HTTP 409, and the UI suppresses the request form and directs the account holder to support. No bypass, backfill, password reset, or recovery mechanism was added. Support handling for such legacy accounts remains unresolved and must not be implemented as post-signup password creation under the current policy.
+- Settings now gives an informational policy statement and retains existing account access/sign-out functions. No account-password change flow was removed. Profile shortcut text no longer advertises payment-password changes.
+- The E2E registration fixture still uses distinct sample values; it does not exercise server-side signup. Focused source-contract assertions cover equality permission and separate bcrypt calls. No HTTP/database integration or live withdrawal was run; do not describe mock/static coverage as real authentication or concurrency verification.
+
+### Local release/source checks
+
+- Focused DB-free group run: 14 relevant test files for payment passwords, role/login isolation, Admin/Manager permissions, Manager approval scoping, signup approval, tiers, manual booking, no-refund cancellation, Re-Rent settlement, scheduler auth/runner/window, and security configuration: **49/49 passed**.
+- Follow-up after adding a cross-platform referral-ownership regression test: `node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/payment-password-policy.test.ts tests/signup-ownership.test.ts tests/login-account.test.ts`: **exit 0, 10/10 passed**.
+- `npx tsc --noEmit --pretty false`: **exit 0** after the latest source and test changes.
+- `npm run build`: **exit 0** on Next.js 16.3.6; TypeScript completed and **89/89** static pages generated. The output included `/api/user/withdrawals` and did not include the removed setter route. This local build does not prove deployment.
+- `npx prisma validate --schema prisma/schema.prisma`: **exit 0** using a dummy validation-only loopback DATABASE_URL. It made no connection. No Prisma schema or migration file changed in this pass.
+- Static migration tree contains exactly the expected six migration directories: `0_init`, `20260928013424_add_admin_super_staff_and_login_tokens`, `20260929120000_add_verified_task_status`, `20260930031225_admin_permissions_not_null`, `20261001000000_manager_entered_rerent_return`, and `20261002000000_user_display_tier`; migration provider is PostgreSQL. Directory presence/schema validation do not establish the Production `prisma_migrations` state.
+- Existing 49-test focused run freshly exercised signup credit amount/ledger/audit/notification/repeat/rollback/retry behavior, Manager scoping, Super Admin route policy, role login isolation, booking without wallet debit, cancellation without refund/ledger reversal, Re-Rent wallet/ledger/idempotency/Manager scope, and scheduler auth/window/runner. Mocks/source tests do not establish PostgreSQL concurrent serialization or live notifications.
+
+### Read-only live deployment evidence and blockers
+
+- Read-only `vercel project inspect prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1` still identifies project `housing-pro`, Next.js, Node `24.x`. This isolated worktree has no `.vercel/project.json`, so no local link was assumed; the confirmed project ID was queried explicitly.
+- Latest Production listing and `vercel inspect` identify deployment `housing-hon07ekmr-mrnobody007k.vercel.app` as READY Production, created **2026-09-30 23:45:55 UTC**. Deployment-list Git metadata: repo `Hosting.Pro`, branch `main`, commit `a1dee6ead64b482037096db8b370696e6539b545`, `gitDirty=1`. Inspect's current response omitted Git and function metadata; the list provided the fields above. The prior artifact inspection recorded the signup-override and User-tier API routes absent. This old/dirty artifact cannot prove the exact deployed source and does not contain the local payment-password change.
+- Effective `housing-pro` Settings → Git / Build & Deployment values (repository connection, production branch, deployment enablement, ignored-build command, team policy) are not exposed by the available CLI response. A project/team administrator must provide those read-only fields and explicitly state whether a push to `Hosting.Pro/main` automatically triggers Production. Do not publish before that evidence and separate release approval.
+- Latest Vercel Production environment-name listing is already recorded above as `AUTH_SECRET`, `DATABASE_URL`, and `SCHEDULER_SERVICE_SECRET`; no values were retrieved here. Presence of `SCHEDULER_SERVICE_SECRET` does not prove its value, UTF-8 length, or Vault parity. Use a platform-approved value-free validation only; never pull/print/copy the value.
+- Source confirms `POST /api/internal/scheduler/process`, Node runtime, `force-dynamic`, Bearer `SCHEDULER_SERVICE_SECRET`, a minimum 32 UTF-8 bytes, and `timingSafeEqual` before job/Prisma callbacks. `README.md` describes one Supabase Cron call each minute with `pg_net` and 30,000 ms request timeout. The route declares no `maxDuration` and no `vercel.json` is present; the most recent CLI inspect response did not expose effective function timeout. An earlier artifact inspection recorded 300 seconds for the old scheduler deployment. That artifact setting plus source bounds does not prove current effective configuration, Supabase Cron success, or endpoint completion under its 30-second HTTP timeout.
+- `supabase`, `psql`, and `pg_isready` executables remain unavailable. No Supabase management/dashboard evidence or authorized least-privilege read-only DB role is available. No remote DB query, secret/Vault read, Cron history check, or settlement endpoint request was made. Production DB identity, role/read-only mode, live schema comparison and migration status, Cron definition/history, and secret validity remain unverified.
+- Actual Admin login and Super Admin signup approval have not been attempted; credentials/session and a deployed route are not verified. The local source route enforces Super Admin and the one-time ₹120 shared approval transaction, and tests pass, but production currently points at an older dirty deployment. No live signup/credit, migration, or deployment claim is made.
+- Canonical custom domain remains unconfirmed. Existing handover records generated Vercel aliases only; no DNS/domain change or guessed canonical host was made.
+
+**Smallest next external action:** a project/team administrator supplies the read-only effective Vercel Git/build settings for the exact project ID and confirms whether publishing to `Hosting.Pro/main` triggers Production. Then obtain separately authorized Supabase operator evidence: exact project ref/environment, a pre-existing least-privilege read-only DB role's identity/read-only status plus database and migration/schema report, and Cron job destination/schedule/recent run status with Vault secret-name/presence only. Live Admin verification requires a controlled authorized login/test account after the intended source is deployed. Release remains blocked pending those facts and explicit publication approval.
+
+## Final payment-credential logging hardening (2026-10-03)
+
+- Signup and withdrawal POST failure paths now emit only fixed event labels (`USER_REGISTER_ERROR`, `USER_WITHDRAWAL_ERROR`) rather than passing raw exception objects to application logs. This avoids exception metadata accidentally carrying user-supplied credential values. Withdrawal GET remains unrelated to password input.
+- Extended `tests/payment-password-policy.test.ts` to assert signup/withdrawal POST handlers do not log raw caught errors, and to hash the same test value twice with bcrypt cost 12, assert independently salted hashes differ, and verify the shared input against each hash. The test contains only a synthetic value and never logs it.
+- Final targeted command `node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/payment-password-policy.test.ts tests/signup-ownership.test.ts tests/login-account.test.ts`: **exit 0, 11/11 passed**.
+- After the logging-source change, full `npm run build`: **exit 0**, TypeScript phase completed and 89/89 static pages generated. Build output included `/api/user/withdrawals` and omitted the deleted post-signup setter. Resources immediately before this build: 1.49 GiB free physical RAM, 6.4 GiB free commit headroom, 34.22 GiB free D:; no process was stopped. Follow-up TypeScript after the test-only bcrypt addition: **exit 0**. Prisma validation remains the observed exit-0 result above; Prisma schema/migrations have not changed.
+- Additional source audit found `scripts/lock-demo-accounts.ts` only clears the demo User's nullable payment hash while disabling that exact demo account; it does not create/verify or log a payment password. `prisma/seed.ts` uses the already bcrypt-hashed seed fixture for both demo password hashes.
+- Current local code has no approved production recovery flow for a legacy account missing `paymentPasswordHash`; the UI/API block that withdrawal and direct the customer to Housing.pro support. Support must not collect plaintext credentials in tickets or chat and must not set a post-signup password unless the owner changes the rule.
+- These local source/build results do not change the deployment evidence above. Production remains on the older `a1dee6e…` dirty-source deployment; no commit, push, deployment, remote database operation, Cron invocation, secret retrieval, or platform setting change was made.
+
+### Exact resulting worktree file list
+
+- Modified: `PROJECT-HANDOVER.md`, `app/api/user/register/route.ts`, `app/api/user/withdrawals/route.ts`, `app/user/profile/page.tsx`, `app/user/settings/page.tsx`, `app/user/withdrawals/page.tsx`.
+- Deleted: `app/api/user/security/payment-password/route.ts`.
+- Untracked: `tests/payment-password-policy.test.ts`, `tests/signup-ownership.test.ts`.
+- No staged changes; HEAD remains `d77642873a4d370445b7a7e6bf0e2ed183054324`. No `.env*`, package, lockfile, schema, migration, or production setting was changed.
+
+## Release-readiness follow-up — route coverage and administrator evidence (2026-10-03)
+
+### New local verification
+
+- Compared every source `app/api/**/route.ts` against the successful build's `.next/server/app-paths-manifest.json`: **53 source API routes, 53 build-manifest routes, no missing routes, no build-only API routes**. This is local build artifact coverage, not proof the same routes are deployed.
+- Filled a local test gap in `tests/daily-task-settlement.test.ts`: **4/4 passed**. The mocked transaction verifies the established Day 2 profit rate and wallet/ledger before/after consistency, one notification and Manager audit actor, repeated-credit rejection, existing ledger-reference rejection, Manager scoping, and verified-payment requirement. This is not a database/concurrency test.
+- After adding the test: `npx tsc --noEmit --pretty false` **exit 0**. No application source, migration, schema, or environment file changed in this follow-up. The full unit suite and build were not repeated because their relevant source inputs have not changed; prior results remain as separately dated above.
+- No new production-code defect was established in the audited approval, task, Re-Rent, booking, cancellation, withdrawal, or scheduler paths. Existing database-free tests cover Manager/Admin approval policy and the one-time ₹120 credit effects/retries, role login isolation, manual-payment booking without wallet debit, no-refund cancellation, Re-Rent idempotency/ownership, and scheduler auth/window/runner. Mock tests do not prove PostgreSQL concurrency or real session behavior.
+
+### Supabase identity correction
+
+- The operator has already confirmed that Vercel `housing-pro` Production maps to Supabase ref `xopbnpadjtnmolchxyyo`. Earlier handover wording calling this ref a candidate is superseded by that owner/operator confirmation. This confirms the intended target mapping but does **not** verify a live DB connection, current database identity, database role/read-only grants, migration state, or live schema.
+- Do not request the project ref again. The remaining minimum database evidence is an authorized, pre-existing least-privilege read-only connection whose identity/read-only mode is demonstrated, plus read-only database identity, six-migration status, and schema comparison. No connection was made in this pass.
+
+### Concise release-readiness checklist
+
+**Local source/build — verified:** approved local commit/worktree reviewed; signup ownership and payment-password policies covered; permission, ₹120 approval, manual booking, no-refund, task ledger, Re-Rent idempotency, scheduler auth and route-to-build manifest checks recorded; TypeScript, Prisma schema validation, build, focused tests and diff checks passed in the entries above. Preserve that these are local/mock checks.
+
+**Production verification — blocked:** (1) Vercel project/team admin supplies read-only `housing-pro` Settings → Git and Build & Deployment fields: repository, Production branch, deployment enabled, ignored-build command/mode, team restrictions, and whether publishing `Hosting.Pro/main` triggers Production. (2) Supabase operator uses the already confirmed ref to provide read-only role/database identity, read-only-mode proof, migration/schema comparison, Cron schedule/destination/recent run history, and Vault secret-name/presence only. (3) approved secret-safe validation reports `SCHEDULER_SERVICE_SECRET` present and UTF-8 bytes >=32 without outputting its value; verify effective function timeout compatibility. (4) after authorized release, verify deployed commit is exact/clean and artifact contains signup override, User tier, withdrawal, and scheduler routes; run controlled real Admin login/signup approval only through an authorized test account. (5) owner confirms the canonical custom domain when it is ready to connect; no hostname is invented.
+
+**Explicit approval required:** publishing/merging the local release revision, since effective auto-deploy behavior is unknown; any production migration, setting change, DNS action, or deployment/promotion also requires separate approval. No such action occurred.
+
+**Single next action unlocking the most progress:** obtain the read-only Vercel Settings evidence for the exact confirmed project ID, including an explicit statement about push-triggered Production deployment. Then the release publication decision can be made safely; Supabase and live-auth checks remain separate prerequisites to claiming production verification.
+
+## Read-only platform access recheck (2026-10-03)
+
+- Current tool inventory exposes no Vercel or Supabase dashboard/API connector. Local `vercel` CLI is available; `.vercel/project.json` is absent in this isolated worktree. Previously queried project/deployment metadata identifies `housing-pro` and a READY deployment, but the returned fields do not include effective Settings → Git/Build & Deployment policies. No additional authorized Vercel settings/artifact metadata path is available from the current tools. No platform setting was changed.
+- `supabase`, `psql`, and `pg_isready` remain unavailable, and no Supabase read-only session/credential or project API connector is provided. Do not attempt remote database or Cron queries using unrelated credentials or environment files.
+- The confirmed Production Supabase mapping is already `xopbnpadjtnmolchxyyo`; older handover text requesting the project reference again is superseded. Remaining operator evidence is only: existing authorized read-only role proof, database identity/read-only status, migration/schema comparison, Cron schedule/destination/history, Vault secret-name/presence, and a value-free scheduler-secret validity/parity result.
+- The isolated worktree remained at HEAD `d77642873a4d370445b7a7e6bf0e2ed183054324`; no tests were rerun, no production access occurred, and no secrets were read.
+
+## Final release-completion assessment (2026-10-03)
+
+This assessment uses the current isolated worktree and the evidence recorded above. Effort estimates are hands-on time after the responsible administrator is available; DNS propagation and approval wait time are additional.
+
+### Remaining tasks by owner and effort
+
+| Class | Remaining task | Estimate / dependency |
+|---|---|---|
+| LOCAL CODE | No confirmed additional application-code defect is open from the current evidence. Preserve the existing dirty release changes; do not recreate routes or repeat audits. | 0 hours identified |
+| AUTOMATED VERIFICATION | Verify approval/credit atomicity and settlement idempotency against an isolated PostgreSQL test target if stronger-than-mock evidence is required. Current mock tests do not prove database concurrency. First prove the test target is local and safe; do not use Production. | 30–60 minutes after safe test-target confirmation |
+| ADMINISTRATOR ACTION | Read-only Vercel `housing-pro` Settings → Git and Build & Deployment evidence: repository, Production branch, deployment enabled, ignored-build rule, team policy, and whether `Hosting.Pro/main` publication triggers Production. | 10–20 minutes |
+| ADMINISTRATOR ACTION | Read-only Supabase evidence for confirmed ref `xopbnpadjtnmolchxyyo`: database identity/current role/read-only proof, migration history and schema comparison against six repository migrations, Cron schedule/destination/recent run, and Vault key names/presence only. | 30–60 minutes if existing authorized access is available |
+| ADMINISTRATOR ACTION | Run a value-free scheduler-secret check that reports only presence, UTF-8 byte-length ≥32, and parity between the runtime secret and Vault configuration. No secret value should be returned or copied. Verify deployed function timeout against the documented 30-second scheduler request assumption. | 15–30 minutes |
+| ADMINISTRATOR ACTION | Decide and configure the canonical custom domain when the owner is ready; then verify HTTPS and auth/callback redirects on that domain. No canonical hostname is currently confirmed. | 30–60 minutes plus DNS propagation |
+| PRODUCTION RELEASE | After settings and source provenance are confirmed, approve publication of the reviewed release revision. Confirm whether publication auto-deploys before publishing; do not publish until explicit release approval. | 30–45 minutes for controlled publication, excluding approval/build wait |
+| PRODUCTION RELEASE | Verify the resulting Production deployment is READY at the approved commit with clean source provenance; confirm the deployed artifact contains signup-override, tier, withdrawal, and scheduler routes and that runtime settings match the release. | 20–40 minutes after deployment |
+| PRODUCTION RELEASE | Run controlled live smoke checks with authorized accounts: User signup/referral, Manager ownership boundary, Super Admin approval and one-time ₹120 ledger credit, withdrawal password verification, booking/task/Re-Rent behavior, and notifications. Do not use shared credentials in logs. | 45–90 minutes after deployment and safe test-account approval |
+| PRODUCTION RELEASE | If read-only migration comparison finds drift, establish environment classification and backup/recovery, then obtain separate authorization and apply the reviewed migration plan. No production migration is authorized by this assessment. | Unknown until drift and recovery are established; typically 15–30 minutes execution plus review |
+
+### Unverified feature requirements (separate from deployment blockers)
+
+Source and focused tests cover the approved signup-approval and one-time ₹120 credit rules, referral/Manager ownership, payment-password signup-only creation and withdrawal-only verification, manual-payment booking without wallet debit, no cancellation refunds, daily-task and Re-Rent financial rules, and scheduler authentication. These are local-source/test facts only. The following runtime behavior remains unverified: real authentication and role isolation; database-enforced duplicate/concurrent approval and settlement behavior; actual wallet/ledger/audit/notification effects; live booking/task/Re-Rent flows; the withdrawal flow against persisted password hashes; and live scheduler execution. Mock tests do not establish PostgreSQL concurrency or Production behavior.
+
+### Deployment blockers
+
+The inspected Production artifact was missing the Super Admin signup-override and User tier routes, and its `gitDirty=1` metadata does not establish exact source provenance. Effective Vercel Git/build settings, current Production commit/artifact contents, remote migration/schema state, Cron execution, secret validity, and canonical domain remain unverified. Local build/test success does not close these blockers.
+
+### Critical path and readiness evidence
+
+1. Vercel administrator supplies the read-only settings evidence above and confirms publication/automatic-deploy behavior for `Hosting.Pro/main`.
+2. Supabase administrator supplies read-only identity, role, six-migration/schema, and Cron evidence for the already-confirmed project ref. A value-free secret check confirms presence and the 32-byte minimum without exposing the value.
+3. Release owner explicitly approves publication after the dirty local release changes are represented in the reviewed source revision. If Production database changes are needed, obtain separate authorization only after environment and recovery are established.
+4. After publication, record the READY deployment URL, exact commit, clean provenance, artifact route checks, compatible timeout/runtime config, and controlled live smoke-test evidence. Record the owner-approved canonical domain when configured.
+
+Do not declare release-ready until steps 1–4 have evidence. No production access, setting changes, publication, migration, or secret retrieval was performed for this assessment.
+
+## Safe completion pass (2026-10-03)
+
+- Re-read this handover and inspected the isolated worktree. HEAD remains d77642873a4d370445b7a7e6bf0e2ed183054324; no files were staged. Current dirty paths are the existing handover, signup/withdrawal/payment-password UI/API edits and three focused test files. No source changes were needed in this pass.
+- Re-ran only the directly relevant focused tests after the prior changes: payment-password policy, signup/referral ownership, and daily-task settlement. 10/10 passed, exit 0. Command: node -r ./scripts/tsx-windows-preload.cjs ./node_modules/tsx/dist/cli.mjs --test tests/payment-password-policy.test.ts tests/signup-ownership.test.ts tests/daily-task-settlement.test.ts. git diff --check also passed (line-ending warnings only).
+- Authenticated read-only Vercel CLI confirms housing-pro is project ID prj_uKNFA4R8JyqWOhiKZbcKhRQDEgg1 in the current account. vercel ls housing-pro --prod --json reports the latest listing as READY at housing-hon07ekmr-mrnobody007k.vercel.app, created 2026-09-30 23:45:55 UTC, associated with Hosting.Pro/main, commit a1dee6ead64b482037096db8b370696e6539b545, and gitDirty=1. vercel project inspect housing-pro --json confirms project identity and Node 24.x, but does not provide effective Git/build settings. vercel inspect confirms deployment ID dpl_2emvgqgHRtvtV5XUBEfjpCKXWPiE, READY, Production; it does not expose additional source fields. This does not establish the exact deployed source snapshot or route artifact contents.
+- Environment variable values were not requested. vercel env list --help states JSON output includes readable variable values, so that listing was deliberately not run. Variable names/presence remain unverified through this CLI without a value-safe listing mechanism.
+- No Supabase CLI, psql, pg_isready, or configured process DATABASE_URL is available. Only .env.example exists in this worktree. A PostgreSQL Windows service and loopback port 5432 are active, but that does not establish the database name, schema, role, or that housingpro_test is reachable; no database connection was attempted. Therefore database-backed concurrency verification remains blocked rather than guessed.
+- No commit, push, deployment, production setting change, secret retrieval, database connection, or production operation occurred. The original checkout was only queried for its status and HEAD; no command modified it.
+
+Remaining inaccessible checks: Vercel effective Git/build/team policy and value-free environment key status; Supabase identity/role/migrations/schema/Cron/Vault metadata; database-backed concurrency against a positively identified local test DB; deployed route artifact/source provenance; live auth/approval/financial smoke checks; secret-safe scheduler validation; canonical domain decision. Required operator evidence and release sequence are in the final assessment above.
+
+## Current publication identity (2026-10-03)
+
+The isolated branch is two commits ahead of origin/main: source commit 6d6b047fbeb3204e035dd6956a3f5d339392396f plus handover-only commit d77642873a4d370445b7a7e6bf0e2ed183054324. The current worktree delta is not represented by either commit. It consists of modified PROJECT-HANDOVER.md, app/api/user/register/route.ts, app/api/user/withdrawals/route.ts, app/user/profile/page.tsx, app/user/settings/page.tsx, and app/user/withdrawals/page.tsx; deletion of app/api/user/security/payment-password/route.ts; and untracked tests/daily-task-settlement.test.ts, tests/payment-password-policy.test.ts, and tests/signup-ownership.test.ts. No files are staged. These changes contain no environment files or detected credential patterns and relate to the approved payment-password policy, withdrawal/signup behavior, focused tests, or release evidence.
+
+There is no commit SHA for the complete current candidate. Do not treat d77642873a4d370445b7a7e6bf0e2ed183054324 as approval of the present worktree delta: that commit omits all ten current changed paths. Publication approval must name the eventual reviewed commit that includes the accepted delta; no commit or push was created here.

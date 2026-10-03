@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Your account is not currently active.' }, { status: 403 })
     }
     if (!paymentAccount.paymentPasswordHash) {
-      return NextResponse.json({ error: 'Set a payment password in Settings before requesting a payout.' }, { status: 409 })
+      return NextResponse.json({ error: 'No payment password is configured for this account. Payment passwords can only be created during signup. Contact Housing.pro support for help.' }, { status: 409 })
     }
     if (!(await bcrypt.compare(paymentPassword, paymentAccount.paymentPasswordHash))) {
       return NextResponse.json({ error: 'Payment password is incorrect.' }, { status: 403 })
@@ -380,10 +380,7 @@ export async function POST(req: Request) {
       )
     }
 
-    console.error(
-      'USER_WITHDRAWAL_ERROR',
-      error,
-    )
+    console.error('USER_WITHDRAWAL_ERROR')
 
     return NextResponse.json(
       {
