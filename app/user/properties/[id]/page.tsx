@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import UserShell from "../../UserShell"
 import { CustomerPageState, customerStatus, money } from "../../CustomerUI"
+import { clearWalletBookingRequestId, getWalletBookingRequestId } from "../../booking-request"
 
 type Property = { id: string; title: string; location?: string | null; description?: string | null; price: number | string; imageUrl?: string | null }
 
@@ -40,14 +41,16 @@ export default function PropertyDetailPage() {
 
   async function book() {
     if (!property) return
+    const bookingRequestId = getWalletBookingRequestId(property.id)
     setBusy(true); setError("")
     try {
       const response = await fetch("/api/user/orders", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: params.id, amount: String(property.price) }),
+        body: JSON.stringify({ propertyId: params.id, expectedPrice: String(property.price), bookingRequestId }),
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || "Unable to create your booking.")
+      clearWalletBookingRequestId(property.id, bookingRequestId)
       const orderId = result.order?.id || result.id
       if (!orderId) throw new Error("Your booking was created but its details could not be opened.")
       router.push("/user/orders/" + orderId)
@@ -68,8 +71,8 @@ export default function PropertyDetailPage() {
           <h1>{property.title}</h1>
           <div className="property-detail-price">{money(property.price)}</div>
           <p>{property.description || "Review the property details and rent amount before confirming your booking."}</p>
-          <div className="property-payment-note"><strong>Payment details</strong><span>After creating a booking, follow the payment instructions shown in your account and submit a payment reference or proof for Manager review.</span></div>
-          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Creating request…" : `Request rental · ${money(property.price)}`}</button>
+          <div className="property-payment-note"><strong>Wallet payment</strong><span>Get Rent deducts the displayed rent from your available wallet balance. The active booking appears in your Manager’s panel.</span></div>
+          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Processing booking…" : `Book Now · ${money(property.price)}`}</button>
         </section>
       </div>
     </>}

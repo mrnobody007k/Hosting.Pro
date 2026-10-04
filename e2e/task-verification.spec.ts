@@ -298,7 +298,7 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   expect(await transactionCount(day3Id)).toBe(1)
 
   const beforeRent = await walletBalance()
-  const rentBooking = await post(page, '/api/user/orders', { propertyId, amount: '1000.00', quantity: 1 })
+  const rentBooking = await post(page, '/api/user/orders', { propertyId, expectedPrice: '1000.00', bookingRequestId: randomUUID() })
   expect(rentBooking.status).toBe(200)
   const rerentOrderId = rentBooking.body.order.id as string
   orderIds.push(rerentOrderId)
@@ -409,7 +409,7 @@ test('daily and Re-Rent profits require manager verification and settle at most 
   const balanceBeforeInsufficientBooking = await walletBalance()
   await prisma.wallet.update({ where: { userId }, data: { balance: '0.00', reservedBalance: '0.00' } })
   const orderCountBeforeInsufficientBooking = await prisma.order.count({ where: { userId, managerId } })
-  const insufficientBooking = await post(page, '/api/user/orders', { propertyId, amount: '1000.00' })
+  const insufficientBooking = await post(page, '/api/user/orders', { propertyId, expectedPrice: '1000.00', bookingRequestId: randomUUID() })
   expect(insufficientBooking.status).toBe(409)
   expect(await prisma.order.count({ where: { userId, managerId } })).toBe(orderCountBeforeInsufficientBooking)
   expect((await prisma.wallet.findUniqueOrThrow({ where: { userId }, select: { balance: true } })).balance.toString()).toBe('0')

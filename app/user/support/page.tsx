@@ -6,7 +6,7 @@ import { CustomerPageHeader } from "../CustomerUI"
 
 const topics = [
   { title: "Property Browsing", text: "Visit Properties to explore available listings. Use search and filters to find the right property for your rental needs." },
-  { title: "Booking & Rent", text: "Create a rental request, follow the payment instructions shown for your account, then submit your payment reference or proof from the booking details page. A Manager reviews the payment before the booking is activated." },
+  { title: "Booking & Rent", text: "Use Get Rent to pay the listed rent from your available wallet balance. The booking becomes active and appears in your assigned Manager’s panel. Older bookings still awaiting off-platform payment can use the payment details form." },
   { title: "Add Funds", text: "Wallet deposits continue to use the existing manual payment and reference/proof workflow. A manager reviews each deposit before it is credited." },
   { title: "Re-Rent Tasks", text: "A Re-Rent activity appears in your Task Center after your manager assigns it. After you submit it and the configured delay passes, your manager enters and approves the final return." },
   { title: "Task Completion", text: "Daily tasks (Day 2 Morning, Day 2 Afternoon, Day 3 Official) unlock as you progress. Complete them to earn profit and advance your membership." },

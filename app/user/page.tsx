@@ -5,6 +5,7 @@ import Link from "next/link";
 import UserShell from "./UserShell";
 import { Decimal } from "decimal.js";
 import { customerStatus } from "./CustomerUI";
+import { clearWalletBookingRequestId, getWalletBookingRequestId } from "./booking-request";
 
 type Property = {
   id: string;
@@ -206,6 +207,7 @@ export default function UserDashboard() {
   }, []);
 
   async function bookProperty(property: Property) {
+    const bookingRequestId = getWalletBookingRequestId(property.id);
     try {
       setBusy(`book-${property.id}`);
       setError("");
@@ -215,7 +217,7 @@ export default function UserDashboard() {
       const res = await fetch("/api/user/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: property.id, amount: String(property.price) }),
+        body: JSON.stringify({ propertyId: property.id, expectedPrice: String(property.price), bookingRequestId }),
       });
 
       const json = await res.json();
@@ -224,8 +226,9 @@ export default function UserDashboard() {
         throw new Error(json?.error || "Unable to create booking.");
       }
 
+      clearWalletBookingRequestId(property.id, bookingRequestId);
       setBookingOrderId(typeof json.order?.id === "string" ? json.order.id : null);
-      setBookingMessage(`Booking ${json.order?.orderCode || "request"} created. Follow the payment instructions and submit your payment reference or proof for Manager review.`);
+      setBookingMessage(`Rent ${money(json.order?.amount ?? property.price)} was deducted from your wallet. Booking ${json.order?.orderCode || "request"} is active and visible to your Manager.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to create booking.");
@@ -681,7 +684,7 @@ export default function UserDashboard() {
         </Link>
       </section>
 
-      {bookingMessage && <div className="hp-user-alert hp-user-alert-success" role="status">{bookingMessage}{bookingOrderId && <> <Link href={`/user/orders/${encodeURIComponent(bookingOrderId)}`}>Complete payment details</Link></>}</div>}
+      {bookingMessage && <div className="hp-user-alert hp-user-alert-success" role="status">{bookingMessage}{bookingOrderId && <> <Link href={`/user/orders/${encodeURIComponent(bookingOrderId)}`}>View booking</Link></>}</div>}
 
       <style jsx global>{`
         .hp-user-head {

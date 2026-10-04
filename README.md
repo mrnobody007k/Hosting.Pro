@@ -67,6 +67,12 @@ Database deployment is intentionally omitted here until the existing database ba
 
 For Vercel or another serverless host, use the Node.js runtime for Prisma route handlers and a provider-managed pooled PostgreSQL URL for application requests. Prisma's development singleton prevents duplicate clients during hot reload; serverless instances still each create their own client, so set a conservative connection limit and size the database pool for the maximum concurrent instances. Do not run migrations or Prisma schema synchronization from the build step. `npm run db:generate` generates the client locally/build-time and does not change database contents.
 
+### Get Rent wallet booking
+
+Get Rent reads the property's current price from the database, checks that it still matches the displayed price, and atomically deducts it from the client's available wallet balance (`balance - reservedBalance`). The order is created as active/paid and appears under the client's assigned Manager; a property-specific Manager must match that referral owner. A client-generated request UUID is retained across retries and mapped to a deterministic unique order code, so replays return the original order without another debit. The same Serializable transaction writes the negative `ADJUSTMENT` rent-debit ledger row, notification, and audit event. No additional schema change is needed because `Order.orderCode` is already unique. Insufficient available funds are rejected. Cancellation does not refund this debit or reverse its ledger row.
+
+Existing bookings that were already waiting for off-platform payment may still use the legacy reference/proof review flow. New Get Rent bookings are funded from the Housing.pro wallet; manual payment remains available for deposits.
+
 ### Automatic task progression and Re-Rent settlement
 
 Supabase Cron is the single production scheduler. It invokes `POST /api/internal/scheduler/process` once per minute through `pg_net`. The authenticated endpoint runs a bounded daily-progression batch and a bounded Re-Rent candidate-discovery batch, then returns aggregate counts only. Daily task creation reuses the same progression service as manager/admin sync. The Re-Rent batch only identifies due work for manager review; manager approval uses the shared transaction in `lib/rerent-settlement.mjs` to validate and record the final return and single wallet credit. The default Re-Rent delay is 90 seconds; a one-minute schedule can add up to about one schedule interval before a task appears for manager review.
