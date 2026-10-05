@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 
+// Internal scheduler authentication is intentionally tied to the production
+// SCHEDULER_SERVICE_SECRET only; do not fall back to legacy secret names.
 export function authorizeSchedulerRequest(
   request: Request,
   expectedToken = process.env.SCHEDULER_SERVICE_SECRET,
