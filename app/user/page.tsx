@@ -1,10 +1,11 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import UserShell from "./UserShell";
 import { Decimal } from "decimal.js";
 import { customerStatus } from "./CustomerUI";
+import { clearWalletBookingRequestId, getWalletBookingRequestId } from "./booking-request";
 
 type Property = {
   id: string;
@@ -33,8 +34,9 @@ type Task = {
 type Order = {
   id: string;
   orderCode: string;
-  amount: number;
-  profit?: number;
+  amount: number | string;
+  profit?: number | string;
+  finalReturnAmount?: number | string | null;
   profitRate?: number;
   status: string;
   paymentStatus?: string;
@@ -82,7 +84,6 @@ type Overview = {
     welcomeBalance?: number;
     day2ProfitRate?: number;
     day3ProfitRate?: number;
-    rerentProfitRate?: number;
   };
   setting?: { depositInstructions?: string };
 };
@@ -146,12 +147,8 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [propertySearch, setPropertySearch] = useState("");
-  const [orderSearch, setOrderSearch] = useState("");
-  const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
-  const [paymentReference, setPaymentReference] = useState("");
-  const [paymentProofUrl, setPaymentProofUrl] = useState("");
-  const [paymentMessage, setPaymentMessage] = useState("");
+  const [bookingMessage, setBookingMessage] = useState("");
+  const [bookingOrderId, setBookingOrderId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -210,14 +207,17 @@ export default function UserDashboard() {
   }, []);
 
   async function bookProperty(property: Property) {
+    const bookingRequestId = getWalletBookingRequestId(property.id);
     try {
       setBusy(`book-${property.id}`);
       setError("");
+      setBookingMessage("");
+      setBookingOrderId(null);
 
       const res = await fetch("/api/user/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: property.id, amount: String(property.price) }),
+        body: JSON.stringify({ propertyId: property.id, expectedPrice: String(property.price), bookingRequestId }),
       });
 
       const json = await res.json();
@@ -226,49 +226,12 @@ export default function UserDashboard() {
         throw new Error(json?.error || "Unable to create booking.");
       }
 
-      setPaymentOrder(json.order || json);
-      setPaymentMessage(
-        "Your booking has been created. Follow the payment instructions shown for your account, then share your payment reference."
-      );
+      clearWalletBookingRequestId(property.id, bookingRequestId);
+      setBookingOrderId(typeof json.order?.id === "string" ? json.order.id : null);
+      setBookingMessage(`Rent ${money(json.order?.amount ?? property.price)} was deducted from your wallet. Booking ${json.order?.orderCode || "request"} is active and visible to your Manager.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to create booking.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function submitPayment() {
-    if (!paymentOrder) return;
-
-    try {
-      setBusy(`payment-${paymentOrder.id}`);
-      setError("");
-
-      const res = await fetch("/api/user/orders/payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: paymentOrder.id,
-          paymentReference: paymentReference.trim() || undefined,
-          paymentProofUrl: paymentProofUrl.trim() || undefined,
-        }),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error || "Unable to submit payment.");
-      }
-
-      setPaymentMessage(
-        "Payment details submitted. Your payment will be checked and your booking status will update here."
-      );
-      setPaymentReference("");
-      setPaymentProofUrl("");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to submit payment.");
     } finally {
       setBusy(null);
     }
@@ -324,32 +287,6 @@ export default function UserDashboard() {
         .filter((task) => task.status !== "COMPLETED"),
     [orders]
   );
-
-  const filteredProperties = useMemo(() => {
-    const q = propertySearch.trim().toLowerCase();
-    if (!q) return properties;
-
-    return properties.filter((property) =>
-      [property.title, property.location, property.description]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [properties, propertySearch]);
-
-  const filteredOrders = useMemo(() => {
-    const q = orderSearch.trim().toLowerCase();
-    if (!q) return orders;
-
-    return orders.filter((order) =>
-      [order.orderCode, order.property?.title, order.status]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [orders, orderSearch]);
 
   return (
     <UserShell
@@ -438,10 +375,27 @@ export default function UserDashboard() {
         </div>
 
         <div className="hp-user-kpi">
-          <span>Total Profit</span>
+          <span>Total Revenue recorded</span>
           <strong>{money(stats.totalProfit)}</strong>
-          <small>Recorded earnings</small>
+          <small>Completed earnings in your account</small>
         </div>
+      </section>
+
+      <section className="hp-industry-reference" aria-labelledby="industry-reference-title">
+        <h2 id="industry-reference-title" className="sr-only">Real estate industry references</h2>
+        <a className="hp-industry-card" data-reference="housing" href="https://housing.com/" target="_blank" rel="noopener noreferrer">
+          <small>Industry reference · Property discovery</small>
+          <strong>Housing.com</strong>
+          <p>Explore a broad property marketplace and compare homes, neighbourhoods and rental options.</p>
+          <span>Visit Housing.com ↗</span>
+        </a>
+        <a className="hp-industry-card" data-reference="proptiger" href="https://www.proptiger.com/" target="_blank" rel="noopener noreferrer">
+          <small>Industry reference · Real estate insights</small>
+          <strong>PropTiger</strong>
+          <p>Browse property research and listing tools from an independent real estate platform.</p>
+          <span>Visit PropTiger ↗</span>
+        </a>
+        <p className="hp-industry-disclaimer">Independent industry references for general discovery. Housing.pro is not affiliated with, endorsed by, or a partner of Housing.com or PropTiger.</p>
       </section>
 
       <section className="hp-user-panel">
@@ -456,12 +410,6 @@ export default function UserDashboard() {
           </div>
 
           <div className="hp-user-toolbar">
-            <input
-              className="hp-user-search"
-              value={propertySearch}
-              onChange={(e) => setPropertySearch(e.target.value)}
-              placeholder="Search properties..."
-            />
             <Link
               href="/user/properties"
               className="hp-user-btn hp-user-btn-secondary"
@@ -471,7 +419,7 @@ export default function UserDashboard() {
           </div>
         </div>
 
-        {filteredProperties.length === 0 ? (
+        {properties.length === 0 ? (
           <div className="hp-user-empty">
             <div className="hp-user-empty-icon">⌂</div>
             <h3>No properties available</h3>
@@ -479,7 +427,7 @@ export default function UserDashboard() {
           </div>
         ) : (
           <div className="hp-property-grid">
-            {filteredProperties.slice(0, 8).map((property) => (
+            {properties.slice(0, 8).map((property) => (
               <article className="hp-property-card" key={property.id}>
                 <div className="hp-property-media">
                   {property.imageUrl ? (
@@ -543,12 +491,6 @@ export default function UserDashboard() {
             </div>
 
             <div className="hp-user-toolbar">
-              <input
-                className="hp-user-search"
-                value={orderSearch}
-                onChange={(e) => setOrderSearch(e.target.value)}
-                placeholder="Search bookings..."
-              />
               <Link
                 href="/user/orders"
                 className="hp-user-text-link"
@@ -564,14 +506,15 @@ export default function UserDashboard() {
                 <tr>
                   <th>Booking</th>
                   <th>Property</th>
-                  <th>Amount</th>
+                  <th>Rent / Re-Rent</th>
+                  <th>Revenue</th>
                   <th>Status</th>
                   <th>Date</th>
                 </tr>
               </thead>
 
               <tbody>
-                {filteredOrders.slice(0, 8).map((order) => (
+                {orders.slice(0, 8).map((order) => (
                   <tr key={order.id}>
                     <td>
                       <Link
@@ -582,7 +525,8 @@ export default function UserDashboard() {
                       </Link>
                     </td>
                     <td>{order.property?.title || "—"}</td>
-                    <td>{money(order.amount)}</td>
+                    <td>{money(order.amount)}{order.finalReturnAmount && <small className="hp-final-return">Final Return {money(order.finalReturnAmount)}</small>}</td>
+                    <td>{["RE_RENTED", "COMPLETED"].includes(order.status) ? money(order.profit) : <span className="hp-revenue-pending">Not recorded</span>}</td>
                     <td>
                       <span className={statusClass(order.status)}>
                         {customerStatus(order.status)}
@@ -594,7 +538,7 @@ export default function UserDashboard() {
               </tbody>
             </table>
 
-            {filteredOrders.length === 0 && (
+            {orders.length === 0 && (
               <div className="hp-user-empty hp-user-empty-small">
                 <h3>No bookings yet</h3>
                 <p>Your bookings will appear here.</p>
@@ -636,7 +580,7 @@ export default function UserDashboard() {
                   </div>
 
                   <div className="hp-task-side">
-                    {task.profitRate ? (
+                    {task.type !== "RE_RENT" && task.profitRate ? (
                       <b>{new Decimal(String(task.profitRate)).toFixed(2)}%</b>
                     ) : null}
 
@@ -740,82 +684,7 @@ export default function UserDashboard() {
         </Link>
       </section>
 
-      {paymentOrder && (
-        <div className="hp-user-modal-backdrop">
-          <div className="hp-user-modal">
-            <div className="hp-user-modal-head">
-              <div>
-                <div className="hp-user-section-kicker">BOOKING PAYMENT</div>
-                <h2>Complete your payment</h2>
-                <p>
-                  Order {paymentOrder.orderCode} ·{" "}
-                  {money(paymentOrder.amount)}
-                </p>
-              </div>
-
-              <button
-                className="hp-user-modal-close"
-                onClick={() => setPaymentOrder(null)}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="hp-user-payment-notice">
-              <strong>Manual payment</strong>
-              <span>
-                Housing.pro does not process this payment through an online
-                gateway. Complete payment using these instructions, then submit
-                the payment reference below.
-              </span>
-              <p>{overview?.setting?.depositInstructions || "Follow the payment instructions provided for your account, then submit your transaction reference or proof."}</p>
-            </div>
-
-            {paymentMessage && (
-              <div className="hp-user-alert hp-user-alert-success">
-                {paymentMessage}
-              </div>
-            )}
-
-            <label className="hp-user-field">
-              <span>Payment Reference</span>
-              <input
-                value={paymentReference}
-                onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="Enter transaction/reference number"
-              />
-            </label>
-
-            <label className="hp-user-field">
-              <span>Payment Proof URL (optional)</span>
-              <input
-                value={paymentProofUrl}
-                onChange={(e) => setPaymentProofUrl(e.target.value)}
-                placeholder="Paste proof URL if available"
-              />
-            </label>
-
-            <div className="hp-user-modal-actions">
-              <button
-                className="hp-user-btn hp-user-btn-secondary"
-                onClick={() => setPaymentOrder(null)}
-              >
-                Close
-              </button>
-
-              <button
-                className="hp-user-btn hp-user-btn-primary"
-                disabled={busy === `payment-${paymentOrder.id}`}
-                onClick={submitPayment}
-              >
-                {busy === `payment-${paymentOrder.id}`
-                  ? "Submitting..."
-                  : "Submit Payment Details"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {bookingMessage && <div className="hp-user-alert hp-user-alert-success" role="status">{bookingMessage}{bookingOrderId && <> <Link href={`/user/orders/${encodeURIComponent(bookingOrderId)}`}>View booking</Link></>}</div>}
 
       <style jsx global>{`
         .hp-user-head {

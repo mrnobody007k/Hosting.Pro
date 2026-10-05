@@ -76,6 +76,11 @@ export function isSuperAdmin(adminType: string): boolean {
   return adminType === 'SUPER_ADMIN'
 }
 
+/** Admin account management APIs are intentionally Super Admin-only. */
+export function canAccessAdminAccountManagement(adminType: string): boolean {
+  return isSuperAdmin(adminType)
+}
+
 export function getEffectivePermissions(adminType: string, permissions: string[]): AdminPermission[] {
   if (isSuperAdmin(adminType)) {
     return SUPER_ADMIN_PERMISSIONS

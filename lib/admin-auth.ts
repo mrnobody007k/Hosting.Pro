@@ -21,7 +21,10 @@ export async function requireAdminAuth(requiredPermission?: AdminPermission): Pr
     return { ok: true, session: { ...session, adminType: session.adminType, permissions: session.permissions } }
   }
 
-  if (requiredPermission && !hasPermission(session.permissions, requiredPermission)) {
+  // Staff sessions must always name the capability being used. Otherwise a
+  // route that forgets to pass a permission silently becomes open to every
+  // staff admin.
+  if (!requiredPermission || !hasPermission(session.permissions, requiredPermission)) {
     return { ok: false, response: NextResponse.json({ error: 'Insufficient permissions.' }, { status: 403 }) }
   }
 

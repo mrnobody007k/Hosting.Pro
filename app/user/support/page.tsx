@@ -6,11 +6,11 @@ import { CustomerPageHeader } from "../CustomerUI"
 
 const topics = [
   { title: "Property Browsing", text: "Visit Properties to explore available listings. Use search and filters to find the right property for your rental needs." },
-  { title: "Booking & Order Confirmation", text: "After booking a property, check My Rentals for order status. Your manager will confirm payment once you submit the reference." },
-  { title: "Manager-Assisted Payment", text: "Housing.pro does not process payments online. Follow the payment details shared with your account, then submit your transaction reference for verification." },
-  { title: "Re-Rent Tasks", text: "A Re-Rent activity appears in your Task Center only after your manager assigns it to an eligible booking. After you submit it, settlement runs after the configured processing delay." },
+  { title: "Booking & Rent", text: "Use Get Rent to pay the listed rent from your available wallet balance. The booking becomes active and appears in your assigned Manager’s panel. Older bookings still awaiting off-platform payment can use the payment details form." },
+  { title: "Add Funds", text: "Wallet deposits continue to use the existing manual payment and reference/proof workflow. A manager reviews each deposit before it is credited." },
+  { title: "Re-Rent Tasks", text: "A Re-Rent activity appears in your Task Center after your manager assigns it. After you submit it and the configured delay passes, your manager enters and approves the final return." },
   { title: "Task Completion", text: "Daily tasks (Day 2 Morning, Day 2 Afternoon, Day 3 Official) unlock as you progress. Complete them to earn profit and advance your membership." },
-  { title: "Earnings & Revenue", text: "Track your task profits and re-rent earnings in the Revenue section. Day 2 tasks earn 1.2%, Day 3 tasks earn 1.4%, Re-Rent earns 1.2%." },
+  { title: "Earnings & Revenue", text: "Track completed task credits and completed Re-Rent activity in the Revenue section. Day 2 and Day 3 percentages describe their task tiers; they are not a Re-Rent return estimate. Pending Re-Rent activities do not show projected revenue." },
   { title: "Account Support", text: "For account access, profile changes, or technical issues, contact Housing.pro support using the details shared with your account." },
 ]
 
@@ -18,7 +18,7 @@ export default function SupportPage() {
   return <UserShell>
     <CustomerPageHeader eyebrow="Housing.pro Support" title="How can we help?" description="Guidance for property browsing, bookings, tasks, earnings, and account questions." />
     <section className="support-topics">{topics.map((topic) => <article key={topic.title}><span>Housing.pro help</span><h2>{topic.title}</h2><p>{topic.text}</p></article>)}</section>
-    <div className="support-contact"><div><strong>Still need a hand?</strong><p>No in-app support contact is configured yet. For a booking question, include its booking code when using the support details provided to you by Housing.pro.</p></div><Link href="/user/orders">View my bookings →</Link></div>
+    <div className="support-contact"><div><strong>Still need a hand?</strong><p>No in-app support contact is configured yet. If you have received Housing.pro support contact details, include your booking code when you reach out.</p></div><Link href="/user/orders">View my bookings →</Link></div>
     <style jsx>{`
       .support-topics {
         display: grid;

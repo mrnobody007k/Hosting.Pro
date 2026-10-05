@@ -40,6 +40,7 @@ export async function GET() {
     pendingTaskCount,
     userCounts,
     profitAggregate,
+    rerentRevenueAggregate,
     depositLedger,
     withdrawalLedger,
     pendingVerificationCount,
@@ -138,6 +139,7 @@ export async function GET() {
     }),
     prisma.user.groupBy({ where: { managerId: session.managerId }, by: ['status', 'signupStatus', 'membershipStatus'], _count: { _all: true } }),
     prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'PROFIT' }, _sum: { amount: true } }),
+    prisma.order.aggregate({ where: { managerId: session.managerId, status: { in: ['RE_RENTED', 'COMPLETED'] }, finalReturnAmount: { not: null } }, _sum: { profit: true } }),
     prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'DEPOSIT' }, _sum: { amount: true } }),
     prisma.transaction.aggregate({ where: { managerId: session.managerId, type: 'WITHDRAWAL' }, _sum: { amount: true } }),
     prisma.order.count({ where: { managerId: session.managerId, status: { in: ['PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED'] } } }),
@@ -162,7 +164,7 @@ export async function GET() {
   const totalBalance = new Decimal(balanceAggregate._sum.balance?.toString() || '0')
   const reservedBalance = new Decimal(balanceAggregate._sum.reservedBalance?.toString() || '0')
   const countUsers = (predicate: (row: { status: string; signupStatus: string; membershipStatus: string; _count: { _all: number } }) => boolean) => userCounts.filter(predicate).reduce((sum, row) => sum + row._count._all, 0)
-  const completedProfit = new Decimal(profitAggregate._sum.amount?.toString() || '0')
+  const completedProfit = new Decimal(profitAggregate._sum.amount?.toString() || '0').plus(rerentRevenueAggregate._sum.profit?.toString() || '0')
 
   return NextResponse.json({
     manager,

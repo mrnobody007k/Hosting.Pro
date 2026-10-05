@@ -34,11 +34,11 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
 AUTH_SECRET="a-long-random-secret-at-least-32-characters"
 ```
 
-In production, configure `AUTH_SECRET` and `DATABASE_URL` in the runtime environment; the development-only signing-secret fallback is available only when `NODE_ENV=development`. `PUBLIC_APP_URL` is optional when the public request origin is reliable; when set, it must be a valid HTTPS origin (scheme and hostname only, with an optional trailing slash). Invalid values are rejected by the server. Set it when a reverse proxy makes the internal request origin differ from the public site. Set `TRUST_PROXY=true` only when a trusted proxy sanitizes the forwarded client-IP headers; otherwise leave it unset.
+In production, configure `AUTH_SECRET` and `DATABASE_URL` in the runtime environment; the development-only signing-secret fallback is available only when `NODE_ENV=development`. For serverless deployments, use the provider's pooled PostgreSQL connection URL for application traffic (and keep any direct connection URL separate for operator-only database tasks); set a small Prisma connection limit compatible with your provider's pool and function concurrency, for example `?sslmode=require&connection_limit=1` where supported. `PUBLIC_APP_URL` is optional when the public request origin is reliable; when set, it must be a valid HTTPS origin (scheme and hostname only, with an optional trailing slash). Invalid values are rejected by the server. Set it when a reverse proxy makes the internal request origin differ from the public site. `TRUST_PROXY=true` is required to use forwarded client-IP headers for login throttling, and is safe only when the trusted proxy strips incoming forwarded-IP headers and writes its own; otherwise leave it unset. Without a trusted client IP, throttling uses the per-identifier bucket only and does not create a shared bucket for all unknown-IP requests.
 
 ## Existing database safety
 
-The configured Supabase database already contains the application tables and records. Its structure matches `prisma/schema.prisma`. A local baseline migration is present at `prisma/migrations/0_init/migration.sql`, but it has **not** been marked as applied and the database does not yet have a `_prisma_migrations` table.
+The configured datasource was previously identified as an existing Supabase PostgreSQL database, but its current identity and migration state have not been re-verified. A prior runtime investigation reported that the target lacked `User.displayTier`, so do not assume its schema matches `prisma/schema.prisma`. Earlier baseline/migration-history observations are historical only and must be confirmed against the intended target before any database operation. A local baseline migration is present at `prisma/migrations/0_init/migration.sql`; never execute it against an existing populated database without a reviewed and approved baseline procedure.
 
 Until the baseline procedure is explicitly reviewed and approved, do not run `db:push`, any `prisma migrate` command, `db:pull`, or the seed script against the configured database. The baseline SQL describes creation from an empty database and must not be executed against the existing populated database.
 
@@ -49,7 +49,9 @@ npm run db:generate
 npm run dev
 ```
 
-The seed script is only for a disposable development database. Never run it against the existing Supabase database or production data.
+The seed script is only for an explicitly verified database. Its development demo-data path requires `ALLOW_HOUSINGPRO_LOCAL_SEED=YES` and a loopback PostgreSQL `DATABASE_URL`; set the opt-in only after verifying the target is disposable. A one-time production Super Admin bootstrap additionally requires `ALLOW_HOUSINGPRO_PRODUCTION_SEED=YES`, valid `SUPER_ADMIN_*` values, and the intended production datasource to be independently confirmed. If `PlatformSetting` is absent, the seed also creates the schema's default manager-seat limit and generic deposit instructions. Production bootstrap creates an initial Super Admin only when none exists; it never changes credentials for an existing Super Admin. Do not run it against an unknown database or as a routine production task.
+
+The legacy `scripts/provision-super-admin.ts` now follows the same database-target opt-in and creates an account only when no Super Admin exists; it does not update existing credentials. The legacy Netlify wrapper requires `NODE_ENV=production` and the local `ALLOW_HOUSINGPRO_PRODUCTION_SEED=YES` opt-in before it reads deployment environment variables. `scripts/fix-super-admin-email.ts` is a credential repair tool and requires both the database-target opt-in above and `ALLOW_HOUSINGPRO_SUPER_ADMIN_REPAIR=YES`. These tools were not executed during this audit.
 
 Open `http://localhost:3000`.
 
@@ -63,24 +65,32 @@ npm run start
 
 Database deployment is intentionally omitted here until the existing database baseline has been formally reconciled. Do not substitute `db:push`.
 
-### Re-Rent settlement: scheduler first, worker optional
+For Vercel or another serverless host, use the Node.js runtime for Prisma route handlers and a provider-managed pooled PostgreSQL URL for application requests. Prisma's development singleton prevents duplicate clients during hot reload; serverless instances still each create their own client, so set a conservative connection limit and size the database pool for the maximum concurrent instances. Do not run migrations or Prisma schema synchronization from the build step. `npm run db:generate` generates the client locally/build-time and does not change database contents.
 
-The shared settlement transaction enforces the configured delay, verifies current ownership/payment/account state, and atomically updates the order, wallet, profit ledger, notification, and audit record. User-side polling remains available as a fallback. The authenticated scheduler endpoint is `POST /api/internal/rerent/process`; it only selects submitted, payment-confirmed tasks whose configured delay has elapsed, processes a bounded batch, and returns aggregate counts without identifiers.
+### Get Rent wallet booking
 
-For scheduled HTTP endpoint processing, configure a Supabase Cron job to call the deployed Housing.pro endpoint and set `RERENT_SCHEDULER_SECRET` in the Housing.pro server environment to a randomly generated value of at least 32 bytes. The endpoint returns 503 until this is configured. Keep the same value in Supabase Vault for a direct `pg_cron` + `pg_net` request, or in Supabase Edge Function Secrets if using an Edge Function relay. The standalone persistent worker does not use this HTTP bearer secret; it connects directly to PostgreSQL through Prisma and requires `DATABASE_URL`. The HTTP endpoint requires `RERENT_SCHEDULER_SECRET`; neither mechanism requires this secret when relying only on user-side polling. Never put this credential, `DATABASE_URL`, or `AUTH_SECRET` in browser code or a publishable key. Supabase documents Cron HTTP requests and recommends Vault for credentials used by scheduled Edge Function calls ([Cron](https://supabase.com/docs/guides/cron), [scheduling Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions), [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)).
+Get Rent reads the property's current price from the database, checks that it still matches the displayed price, and atomically deducts it from the client's available wallet balance (`balance - reservedBalance`). The order is created as active/paid and appears under the client's assigned Manager; a property-specific Manager must match that referral owner. A client-generated request UUID is retained across retries and mapped to a deterministic unique order code, so replays return the original order without another debit. The same Serializable transaction writes the negative `ADJUSTMENT` rent-debit ledger row, notification, and audit event. No additional schema change is needed because `Order.orderCode` is already unique. Insufficient available funds are rejected. Cancellation does not refund this debit or reverse its ledger row.
 
-In the Supabase Dashboard, enable the Cron and `pg_net` integrations if they are not already available, store the public app origin and scheduler token in Vault, then create a job such as this in Cron's SQL editor. Replace the Vault secret names only if you choose different names; do not paste the token directly into a committed file:
+Existing bookings that were already waiting for off-platform payment may still use the legacy reference/proof review flow. New Get Rent bookings are funded from the Housing.pro wallet; manual payment remains available for deposits.
+
+### Automatic task progression and Re-Rent settlement
+
+Supabase Cron is the single production scheduler. It invokes `POST /api/internal/scheduler/process` once per minute through `pg_net`. The authenticated endpoint runs a bounded daily-progression batch and a bounded Re-Rent candidate-discovery batch, then returns aggregate counts only. Daily task creation reuses the same progression service as manager/admin sync. The Re-Rent batch only identifies due work for manager review; manager approval uses the shared transaction in `lib/rerent-settlement.mjs` to validate and record the final return and single wallet credit. The default Re-Rent delay is 90 seconds; a one-minute schedule can add up to about one schedule interval before a task appears for manager review.
+
+Set `SCHEDULER_SERVICE_SECRET` in the Housing.pro Vercel Production environment to a randomly generated value of at least 32 bytes. Store that same value in Supabase Vault; the endpoint returns 503 when the Vercel secret is missing or too short. Store the public production origin in Vault as well. Do not put either value in committed SQL, browser code, or logs. The endpoint accepts only the bearer secret and does not use session authentication. Supabase documents Cron, Vault, and `pg_net` ([Cron](https://supabase.com/docs/guides/cron), [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net), [Vault](https://supabase.com/docs/guides/database/vault)).
+
+After the Vercel endpoint is deployed and the Vault values are configured, create the single job below in the Supabase Cron SQL editor. This is deployment guidance only; do not run it as part of a local build or test:
 
 ```sql
 select cron.schedule(
-  'housingpro-rerent-settlement',
+  'housingpro-scheduler',
   '* * * * *',
   $$
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'housingpro_app_url') || '/api/internal/rerent/process',
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'housingpro_app_url') || '/api/internal/scheduler/process',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'housingpro_rerent_secret')
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'housingpro_scheduler_service_secret')
     ),
     body := '{}'::jsonb,
     timeout_milliseconds := 30000
@@ -89,15 +99,9 @@ select cron.schedule(
 );
 ```
 
-Alternatively, a scheduled Supabase Edge Function can read `HOUSINGPRO_APP_URL` and `RERENT_SCHEDULER_SECRET` from its server-side secrets and `fetch()` the same endpoint with `method: 'POST'` and `Authorization: Bearer <secret>`. Keep the function short-lived; the endpoint processes at most 40 tasks per invocation and returns `hasMore` when another batch is available. A one-minute schedule means settlement may happen up to about one additional schedule interval after the configured delay. Review Cron job history and Edge Function invocation limits/quotas for the project's plan.
+Monitor Supabase Cron run history and the endpoint's aggregate processed/failed counts. The daily and Re-Rent batches use deterministic time-slot rotation over stable ordering, so repeatedly failing early records do not permanently block later eligible records. The compatibility path `/api/internal/rerent/process` delegates to the same Re-Rent batch service; do not configure a second Cron job for it.
 
-The existing persistent worker remains available for later hosting that supports a long-running process:
-
-```bash
-npm run worker:rerent
-```
-
-It runs separately from `npm run start`, polls every five seconds, and uses the same settlement function. Choose either scheduled invocations or the persistent worker for routine background processing; user-side polling remains a fallback. No Housing.pro schema change is required for the scheduler endpoint. Supabase's own Cron/Vault/`pg_net` setup is an operator-managed platform configuration.
+The scheduler uses deterministic time-slot rotation to identify delayed Re-Rent submissions for manager review. It never calculates or credits a Re-Rent return. A manager enters the final return in Task Center; the server validates and records the single wallet credit atomically. Do not configure a separate Re-Rent worker. Before deploying this application version, verify that the intended database has all migrations required by the current Prisma schema, including `20261001000000_manager_entered_rerent_return` (`Order.finalReturnAmount` and `RERENT_SETTLEMENT`) and `20261002000000_user_display_tier` (`User.displayTier`). Migration application status must be confirmed against the intended database; this repository does not verify it. Supabase Cron/Vault/`pg_cron`/`pg_net` setup is operator-managed platform configuration.
 
 A real production verification is only complete after the application is running and the following flows have been manually tested:
 
@@ -115,6 +119,10 @@ A real production verification is only complete after the application is running
 12. Logout and expired/invalid session behavior.
 13. Suspended manager cannot use manager APIs.
 14. Suspended user cannot use user APIs.
+
+## Cancellation policy
+
+Housing.pro does not provide cancellation refunds. Cancelling an order does not automatically refund wallet-paid rent or reverse an existing wallet debit or ledger entry. The platform also does not process refunds for manual/off-platform payments or for orders cancelled while Re-Rent is pending. Existing Manager authorization, order-status checks, audit records, and notifications remain in effect. Any off-platform payment arrangements are outside Housing.pro's refund processing.
 
 ## If `npm install` fails with `EAI_AGAIN` / registry DNS
 

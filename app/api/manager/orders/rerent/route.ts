@@ -1,5 +1,4 @@
 ﻿import { NextResponse } from 'next/server'
-import { Decimal } from 'decimal.js'
 import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import {
@@ -117,23 +116,6 @@ export async function POST(req: Request) {
           throw new Error('TASK_ALREADY_ACTIVE')
         }
 
-        const setting =
-          await tx.platformSetting.findFirst({
-            select: {
-              rerentProfitRate: true,
-            },
-          })
-
-        const profitRate = new Decimal(setting?.rerentProfitRate?.toString() ?? '1.20')
-
-        if (
-          !profitRate.isFinite() ||
-          !profitRate.gt(0) ||
-          profitRate.gt(100)
-        ) {
-          throw new Error('INVALID_PROFIT_RATE')
-        }
-
         const assignedAt = new Date()
 
         /*
@@ -167,7 +149,7 @@ export async function POST(req: Request) {
             propertyUrl:
               order.property?.propertyUrl || null,
             dayNumber: 1,
-            profitRate: profitRate.toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+            profitRate: 0,
             profitAmount: 0,
             status: 'PENDING',
             assignedAt,
@@ -196,7 +178,6 @@ export async function POST(req: Request) {
               orderCode: order.orderCode,
               userId: order.userId,
               taskId: task.id,
-              profitRate: profitRate.toFixed(2),
             },
           },
         })
@@ -205,7 +186,6 @@ export async function POST(req: Request) {
           task,
           orderId: order.id,
           orderCode: order.orderCode,
-          profitRate: profitRate.toFixed(2),
         }
       },
       {
@@ -217,7 +197,6 @@ export async function POST(req: Request) {
       message: 'Re-Rent task assigned successfully.',
       task: {
         ...result.task,
-        profitRate: result.task.profitRate.toString(),
         profitAmount: result.task.profitAmount.toString(),
       },
       orderId: result.orderId,
@@ -307,19 +286,6 @@ export async function POST(req: Request) {
             'This order has already been processed.',
         },
         { status: 409 },
-      )
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === 'INVALID_PROFIT_RATE'
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            'Platform re-rent profit configuration is invalid.',
-        },
-        { status: 500 },
       )
     }
 

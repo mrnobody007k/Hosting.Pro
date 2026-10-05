@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Decimal } from "decimal.js";
 import AdminShell from "../AdminShell";
 import { useAdminInfo } from "../_components/AdminInfoProvider";
-import { AdminPermission, PERMISSION_GROUPS } from "@/lib/admin-permissions";
+import { PERMISSION_GROUPS, canAccessAdminAccountManagement } from "@/lib/admin-permissions";
 
 type AdminAccount = {
   id: string;
@@ -73,12 +73,6 @@ export default function AdminAccountsPage() {
       });
     }
   }, [adminInfo]);
-
-  function can(permission: AdminPermission): boolean {
-    if (!currentAdmin) return false;
-    if (currentAdmin.adminType === "SUPER_ADMIN") return true;
-    return currentAdmin.permissions.includes(permission);
-  }
 
   function handleChange(field: string, value: any) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -157,7 +151,7 @@ export default function AdminAccountsPage() {
 
   if (loading || adminInfoLoading) return <AdminShell><div style={{padding:40,textAlign:"center",color:"#64748b"}}>Loading...</div></AdminShell>;
 
-  const isSuper = currentAdmin?.adminType === "SUPER_ADMIN";
+  const isSuper = canAccessAdminAccountManagement(currentAdmin?.adminType || "");
 
   return (
     <AdminShell>
@@ -291,7 +285,7 @@ export default function AdminAccountsPage() {
                       <td style={{ padding: "15px 16px", color: "#64748b", fontSize: 12 }}>{new Date(admin.createdAt).toLocaleDateString()}</td>
                       <td style={{ padding: "15px 16px" }}>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button onClick={() => startEdit(admin)} disabled={!can("MANAGE_ADMIN_ACCOUNTS") || admin.adminType === "SUPER_ADMIN" ? true : false} style={{ border: 0, borderRadius: 8, padding: "8px 12px", background: can("MANAGE_ADMIN_ACCOUNTS") && admin.adminType !== "SUPER_ADMIN" ? "#2563eb" : "#94a3b8", color: "#fff", fontWeight: 700, fontSize: 12, cursor: can("MANAGE_ADMIN_ACCOUNTS") && admin.adminType !== "SUPER_ADMIN" ? "pointer" : "not-allowed" }}>
+                          <button onClick={() => startEdit(admin)} disabled={!isSuper || admin.adminType === "SUPER_ADMIN"} style={{ border: 0, borderRadius: 8, padding: "8px 12px", background: isSuper && admin.adminType !== "SUPER_ADMIN" ? "#2563eb" : "#94a3b8", color: "#fff", fontWeight: 700, fontSize: 12, cursor: isSuper && admin.adminType !== "SUPER_ADMIN" ? "pointer" : "not-allowed" }}>
                             Edit
                           </button>
                           {isSuper && admin.adminType !== "SUPER_ADMIN" && admin.id !== currentAdmin?.id && (

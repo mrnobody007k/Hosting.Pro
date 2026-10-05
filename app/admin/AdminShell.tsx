@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AdminPermission } from "@/lib/admin-permissions";
+import { AdminPermission, canAccessAdminAccountManagement } from "@/lib/admin-permissions";
 
 interface AdminShellProps {
   children: React.ReactNode;
@@ -102,7 +102,9 @@ export default function AdminShell({
   const adminType = adminInfo?.adminType || "STAFF_ADMIN";
 
   const visibleItems = allItems.filter(item => hasPermission(permissions, adminType, item.permission));
-  const visibleSuperItems = superAdminOnlyItems.filter(item => hasPermission(permissions, adminType, item.permission));
+  const visibleSuperItems = canAccessAdminAccountManagement(adminType)
+    ? superAdminOnlyItems.filter(item => hasPermission(permissions, adminType, item.permission))
+    : [];
 
   return (
     <div className="hp-admin">

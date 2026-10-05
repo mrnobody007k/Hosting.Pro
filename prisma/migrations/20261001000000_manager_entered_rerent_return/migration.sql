@@ -1,0 +1,4 @@
+ALTER TYPE "TransactionType" ADD VALUE 'RERENT_SETTLEMENT';
+
+ALTER TABLE "Order"
+ADD COLUMN "finalReturnAmount" DECIMAL(18,2);

@@ -1,23 +1,18 @@
 import type { PrismaClient } from '@prisma/client'
 
-export type ReRentSettlementResult =
-  | { status: 'PROCESSING'; remainingSeconds: number }
-  | {
-      status: 'COMPLETED'
-      taskId: string
-      orderId: string
-      orderCode: string
-      profit: string
-      profitRate: string
-      alreadyCompleted: boolean
-    }
+export type ReRentSettlementResult = {
+  status: 'COMPLETED'
+  taskId: string
+  orderId: string
+  orderCode: string
+  finalReturnAmount: string | null
+  revenue: string
+  alreadyCompleted: boolean
+}
+
+export function parseFinalReturnAmount(value: unknown): import('decimal.js').Decimal | null
 
 export function settleReRentTask(
   prisma: PrismaClient,
-  input: {
-    taskId: string
-    userId: string
-    managerId: string
-    source?: string
-  },
+  input: { taskId: string; managerId: string; managerUserId: string; finalReturnAmount: unknown; now?: Date },
 ): Promise<ReRentSettlementResult>

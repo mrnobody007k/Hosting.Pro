@@ -374,10 +374,7 @@ export async function POST(req: Request) {
       )
     }
 
-    console.error(
-      'USER_REGISTER_ERROR',
-      error,
-    )
+    console.error('USER_REGISTER_ERROR')
 
     return NextResponse.json(
       {

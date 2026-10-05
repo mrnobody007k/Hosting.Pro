@@ -18,12 +18,24 @@ type Registration = {
 }
 
 const emptyForm: Registration = { name: '', age: '', profession: '', phone: '', email: '', password: '', confirmPassword: '', paymentPassword: '', confirmPaymentPassword: '', referralCode: '' }
+const REGISTRATION_RETURN_KEY = 'housingpro-registration-login-return'
+
+function getAuthorizedLoginReturn(): string {
+  try {
+    const destination = window.sessionStorage.getItem(REGISTRATION_RETURN_KEY)
+    if (destination && /^\/login\/[a-f0-9]{64}$/i.test(destination)) return destination
+  } catch {
+    // Storage can be unavailable; the normal login route remains the fallback.
+  }
+  return '/login'
+}
 
 export default function RegisterPage() {
   const router = useRouter()
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [loginReturnTo, setLoginReturnTo] = useState('/login')
   const [busy, setBusy] = useState(false)
 
   function update(field: keyof Registration, value: string) {
@@ -61,6 +73,9 @@ export default function RegisterPage() {
         setError(data.error || 'We could not create your account. Please try again.')
         return
       }
+      const destination = getAuthorizedLoginReturn()
+      setLoginReturnTo(destination)
+      try { window.sessionStorage.removeItem(REGISTRATION_RETURN_KEY) } catch {}
       setSuccess(true)
     } catch {
       setError('We could not reach Housing.pro. Check your connection and try again.')
@@ -88,7 +103,7 @@ export default function RegisterPage() {
             <span className="customer-auth-kicker">YOU’RE ALL SET</span>
             <h2>Your account is on its way.</h2>
             <p className="customer-auth-subtitle">Your Housing.pro account has been created. Sign in to continue to your account.</p>
-            <button className="customer-submit" onClick={() => router.push('/login')}>Continue to sign in</button>
+            <button className="customer-submit" onClick={() => router.push(loginReturnTo)}>Continue to sign in</button>
             <Link className="customer-back-link" href="/">Back to Housing.pro</Link>
           </div>
         ) : (

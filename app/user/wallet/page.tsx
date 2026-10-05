@@ -8,6 +8,14 @@ export default function WalletPage() {
   const { data, loading, error, reload } = useCustomerOverview({ includeFinancials: true })
   const user = data?.user
   const transactions = data?.transactions || []
+  function transactionLabel(item: (typeof transactions)[number]) {
+    if (item.type === "RERENT_SETTLEMENT") return "Re-Rent final return credited"
+    if (item.note?.startsWith("Rent debit for order ")) return "Original Rent paid"
+    if (item.type === "WELCOME_BONUS") return "Welcome balance"
+    if (item.note?.startsWith("Re-Rent profit")) return "Re-Rent revenue recorded"
+    if (item.type === "PROFIT") return item.note?.startsWith("Day 2") ? "Day 2 task revenue" : item.note?.startsWith("Day 3") ? "Day 3 task revenue" : "Task revenue recorded"
+    return customerStatus(item.type)
+  }
   return <UserShell userName={user?.name || "Client"} membership={customerStatus(user?.membershipStatus)}>
     <CustomerPageHeader eyebrow="YOUR ACCOUNT" title="Wallet" description="Review your balance and recent wallet activity." />
     <CustomerPageState loading={loading} error={error} retry={() => void reload()} />
@@ -21,7 +29,7 @@ export default function WalletPage() {
       <div className="wallet-actions"><Link href="/user/deposits">Add funds →</Link><Link href="/user/withdrawals">Request a withdrawal →</Link></div>
       <section className="customer-surface customer-history wallet-transactions">
         <h2>Recent activity</h2>
-        {transactions.length === 0 ? <CustomerPageState emptyTitle="No wallet activity yet" emptyText="Deposits, withdrawals and completed earnings will appear here." /> : transactions.map((item) => <div className="customer-history-row" key={item.id}><span>{customerStatus(item.type)}</span><strong>{money(item.amount)}</strong><small>{new Date(item.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div>)}
+        {transactions.length === 0 ? <CustomerPageState emptyTitle="No wallet activity yet" emptyText="Deposits, withdrawals and completed earnings will appear here." /> : transactions.map((item) => <div className="customer-history-row" key={item.id}><span>{transactionLabel(item)}</span><strong>{money(item.amount)}</strong><small>{new Date(item.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div>)}
       </section>
     </>}
   </UserShell>

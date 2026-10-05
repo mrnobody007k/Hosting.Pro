@@ -5,7 +5,7 @@ import Link from "next/link"
 import UserShell from "../UserShell"
 import { CustomerPageHeader, CustomerPageState, customerStatus, money, useCustomerOverview } from "../CustomerUI"
 
-type Order = { id: string; orderCode: string; amount: string | number; status: string; paymentStatus: string; createdAt: string; property?: { title: string; location?: string | null; imageUrl?: string | null } | null; tasks?: Array<{ type: string; status: string }> }
+type Order = { id: string; orderCode: string; amount: string | number; profit?: string | number; finalReturnAmount?: string | number | null; status: string; paymentStatus: string; createdAt: string; property?: { title: string; location?: string | null; imageUrl?: string | null } | null; tasks?: Array<{ type: string; status: string }> }
 const tabs = [{ label: "All bookings", value: "ALL" }, { label: "Awaiting payment", value: "PENDING" }, { label: "Completed", value: "COMPLETED" }, { label: "Re-Rent", value: "RE_RENT" }]
 
 export default function UserOrdersPage() {
@@ -54,7 +54,7 @@ export default function UserOrdersPage() {
     {!loading && !error && orders.length > 0 && <section className="order-list" aria-label="Your property bookings">
       {orders.map((order) => <article className="order-list-card customer-surface" key={order.id}>
         <div className="customer-order-property">{order.property?.imageUrl ? <img src={order.property.imageUrl} alt="" loading="lazy" /> : <div aria-hidden="true">H</div>}<div className="order-list-main"><span className="order-list-kicker">BOOKING {order.orderCode}</span><h2>{order.property?.title || "Property booking"}</h2><p>{order.property?.location || "Housing.pro marketplace"} · {new Date(order.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p></div></div>
-        <div className="order-list-amount"><span>Rental amount</span><strong>{money(order.amount)}</strong></div>
+        <div className="order-list-amount"><span>Rent / Re-Rent principal</span><strong>{money(order.amount)}</strong>{["RE_RENTED", "COMPLETED"].includes(order.status) && order.finalReturnAmount && <><span>Final Return</span><strong>{money(order.finalReturnAmount)}</strong></>}<span className="order-list-revenue-label">Revenue</span><strong>{["RE_RENTED", "COMPLETED"].includes(order.status) ? money(order.profit) : "Not recorded"}</strong></div>
         <div className="order-list-status"><span>Booking</span><b className="customer-status-pill">{customerStatus(order.status)}</b><small>Payment: {customerStatus(order.paymentStatus)}</small>{order.tasks?.some((task) => task.type === "RE_RENT") && <small>Re-Rent activity assigned</small>}</div>
         <Link href={`/user/orders/${order.id}`} className="order-list-link">View details →</Link>
       </article>)}

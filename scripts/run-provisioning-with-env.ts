@@ -4,12 +4,13 @@
  */
 
 import { execSync } from 'child_process'
-import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcryptjs'
-
-const prisma = new PrismaClient()
+import { assertProductionAdminProvisioningOptIn } from '../lib/seed-safety'
 
 async function provisionSuperAdmin() {
+  // Require an explicit local opt-in before the external CLI can read deployment env.
+  const productionOptIn = process.env.ALLOW_HOUSINGPRO_PRODUCTION_SEED
+  assertProductionAdminProvisioningOptIn(process.env)
+
   console.log('Fetching production environment variables from Netlify...')
   
   try {
@@ -23,10 +24,13 @@ async function provisionSuperAdmin() {
     
     // Set environment variables
     for (const [key, value] of Object.entries(envVars)) {
-      if (value && typeof value === 'string') {
+      if (!['ALLOW_HOUSINGPRO_PRODUCTION_SEED', 'NODE_ENV'].includes(key) && value && typeof value === 'string') {
         process.env[key] = value
       }
     }
+
+    // Keep the operator's local confirmation; never trust a remote value for the gate.
+    process.env.ALLOW_HOUSINGPRO_PRODUCTION_SEED = productionOptIn
     
     // Verify required variables
     const required = ['DATABASE_URL', 'SUPER_ADMIN_EMAIL', 'SUPER_ADMIN_NAME', 'SUPER_ADMIN_PASSWORD']
@@ -44,7 +48,7 @@ async function provisionSuperAdmin() {
     await provisionSuperAdmin()
     
   } catch (error) {
-    console.error('Failed to run provisioning:', error)
+    console.error('Failed to run provisioning:', error instanceof Error ? error.message : 'Unknown error')
     process.exit(1)
   }
 }

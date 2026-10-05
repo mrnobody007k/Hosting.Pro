@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/prisma'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { AdminPermission } from '@/lib/admin-permissions'
+import { Decimal } from 'decimal.js'
 
 export async function GET() {
   try {
@@ -17,7 +18,6 @@ export async function GET() {
         welcomeBalance: true,
         day2ProfitRate: true,
         day3ProfitRate: true,
-        rerentProfitRate: true,
         rerentDelaySeconds: true,
         depositInstructions: true,
         createdAt: true,
@@ -30,7 +30,6 @@ export async function GET() {
       welcomeBalance: '120.00',
       day2ProfitRate: '1.20',
       day3ProfitRate: '1.40',
-      rerentProfitRate: '1.20',
       rerentDelaySeconds: 90,
       depositInstructions: 'Use the payment details shared with your Housing.pro account, then submit your payment reference or proof.',
       createdAt: null,
@@ -50,6 +49,7 @@ export async function GET() {
       pendingTasks,
       completedTasks,
       profitTotals,
+      rerentProfitTotals,
       managers,
       recentDeposits,
       recentWithdrawals,
@@ -90,6 +90,11 @@ export async function GET() {
         _sum: { amount: true },
         _count: { _all: true },
       }) : Promise.resolve({ _sum: { amount: null }, _count: { _all: 0 } }),
+
+      can('VIEW_REVENUE') ? prisma.order.aggregate({
+        where: { status: { in: ['RE_RENTED', 'COMPLETED'] }, finalReturnAmount: { not: null } },
+        _sum: { profit: true },
+      }) : Promise.resolve({ _sum: { profit: null } }),
 
       can('MANAGE_MANAGERS') ? prisma.manager.findMany({
         take: 200,
@@ -267,7 +272,6 @@ export async function GET() {
         welcomeBalance: typeof setting.welcomeBalance === 'string' ? setting.welcomeBalance : setting.welcomeBalance.toString(),
         day2ProfitRate: typeof setting.day2ProfitRate === 'string' ? setting.day2ProfitRate : setting.day2ProfitRate.toString(),
         day3ProfitRate: typeof setting.day3ProfitRate === 'string' ? setting.day3ProfitRate : setting.day3ProfitRate.toString(),
-        rerentProfitRate: typeof setting.rerentProfitRate === 'string' ? setting.rerentProfitRate : setting.rerentProfitRate.toString(),
       },
       stats: {
         activeManagers,
@@ -282,6 +286,8 @@ export async function GET() {
         pendingTasks,
         completedTasks,
         taskProfit: profitTotals._sum.amount?.toString() ?? '0.00',
+        reRentRevenue: rerentProfitTotals._sum.profit?.toString() ?? '0.00',
+        totalRevenue: new Decimal(profitTotals._sum.amount?.toString() ?? '0').plus(rerentProfitTotals._sum.profit?.toString() ?? '0').toFixed(2),
         profitTransactionCount: profitTotals._count._all,
         managerSeatLimit: setting.managerSeatLimit,
       },

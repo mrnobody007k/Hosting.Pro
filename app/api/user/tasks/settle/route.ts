@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
-import { settleReRentTask } from '@/lib/rerent-settlement.mjs'
 import {
   readJson,
   requireSameOrigin,
@@ -51,7 +50,10 @@ export async function POST(req: Request) {
         managerId: session.managerId,
         type: 'RE_RENT',
       },
-      select: { dayNumber: true, status: true, title: true },
+      select: {
+        id: true, dayNumber: true, status: true, title: true, profitAmount: true,
+        order: { select: { id: true, orderCode: true, status: true, finalReturnAmount: true, profit: true } },
+      },
     })
     if (!task) {
       return NextResponse.json({ error: messages.TASK_NOT_FOUND.error }, { status: messages.TASK_NOT_FOUND.status })
@@ -69,29 +71,22 @@ export async function POST(req: Request) {
       )
     }
 
-    const result = await settleReRentTask(prisma, {
-      taskId,
-      userId: session.sub,
-      managerId: session.managerId,
-      source: 'USER',
-    })
-
-    if (result.status === 'PROCESSING') {
+    if (task.status === 'COMPLETED' && task.order?.status === 'RE_RENTED') {
       return NextResponse.json({
-        completed: false,
-        processing: true,
-        remainingSeconds: result.remainingSeconds,
-        message: `Your Re-Rent request is processing. Please wait ${result.remainingSeconds} seconds.`,
+        completed: true,
+        message: 'Your manager-approved Re-Rent settlement is recorded.',
+        finalReturnAmount: task.order.finalReturnAmount?.toString() ?? null,
+        revenue: task.order.profit.toString(),
+        order: { id: task.order.id, orderCode: task.order.orderCode, status: task.order.status },
       })
     }
 
     return NextResponse.json({
-      completed: true,
-      message: 'Your order has been re-rented successfully.',
-      profit: result.profit,
-      profitRate: result.profitRate,
-      order: { id: result.orderId, orderCode: result.orderCode, status: 'RE_RENTED' },
-    })
+      completed: false,
+      processing: true,
+      pendingManagerSettlement: true,
+      message: 'Your activity is awaiting a manager-entered final return and settlement approval.',
+    }, { status: 409 })
   } catch (error) {
     const securityResponse = handleRequestSecurityError(error)
     if (securityResponse) return securityResponse

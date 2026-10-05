@@ -60,7 +60,7 @@ export default function RevenuePage() {
   }
 
   return <UserShell userName={user?.name || "Client"} membership={user?.membershipStatus?.replaceAll("_", " ")}>
-    <CustomerPageHeader eyebrow="YOUR EARNINGS" title="Revenue" description="Track your task profits and re-rent income from Housing.pro bookings." />
+    <CustomerPageHeader eyebrow="YOUR EARNINGS" title="Revenue" description="Review completed task credits and recorded Re-Rent revenue from your Housing.pro bookings." />
     <CustomerPageState loading={loading} error={error} retry={() => void reload()} />
 
     {!loading && !error && <>
@@ -73,12 +73,12 @@ export default function RevenuePage() {
         <article className="revenue-card">
           <span>Task Profits</span>
           <strong>{money(earnings?.taskProfit ?? "0")}</strong>
-          <small>Day 2 (1.2%) + Day 3 (1.4%)</small>
+          <small>Daily task tier earnings only</small>
         </article>
         <article className="revenue-card">
-          <span>Re-Rent Income</span>
+          <span>Re-Rent Revenue recorded</span>
           <strong>{money(earnings?.rerentProfit ?? "0")}</strong>
-          <small>Profit from completed Re-Rent activities</small>
+          <small>Credits recorded for completed Re-Rent activities</small>
         </article>
         <article className="revenue-card">
           <span>Completed Tasks</span>
@@ -93,11 +93,11 @@ export default function RevenuePage() {
         <h2>Task Profit Breakdown</h2>
         <div className="breakdown-grid">
           <div className="breakdown-item">
-            <div className="breakdown-label">Day 2 Tasks (1.2%)</div>
+            <div className="breakdown-label">Day 2 task tier</div>
             <div className="breakdown-value">{money(earnings?.day2TaskProfit ?? "0")}</div>
           </div>
           <div className="breakdown-item">
-            <div className="breakdown-label">Day 3 Official (1.4%)</div>
+            <div className="breakdown-label">Day 3 official task tier</div>
             <div className="breakdown-value">{money(earnings?.day3TaskProfit ?? "0")}</div>
           </div>
         </div>
@@ -132,8 +132,8 @@ export default function RevenuePage() {
               .slice(0, 20)
               .map((order) => (
                 <div className="customer-history-row" key={order.id}>
-                  <span>Re-Rent: {order.property?.title || order.orderCode}</span>
-                  <strong>Completed</strong>
+                  <span>Re-Rent · {order.property?.title || order.orderCode}<small className="hp-revenue-order-principal">Original Rent {money(order.amount)}</small></span>
+                  <strong>Revenue recorded {money(order.profit)}</strong>
                   <small>{order.rerentedAt ? new Date(order.rerentedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Completed"}</small>
                 </div>
               ))

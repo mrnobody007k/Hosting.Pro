@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
 type LoginRole = 'USER' | 'MANAGER' | 'ADMIN'
+const REGISTRATION_RETURN_KEY = 'housingpro-registration-login-return'
 
 export default function LoginForm({ role, accessToken }: { role: LoginRole; accessToken?: string }) {
   const router = useRouter()
@@ -47,6 +48,7 @@ export default function LoginForm({ role, accessToken }: { role: LoginRole; acce
         <span className="customer-auth-kicker">HOUSING.PRO {customer ? 'ACCOUNT' : 'SECURE PORTAL'}</span>
         <h2>{portalTitle}</h2>
         <p className="customer-auth-subtitle">{customer ? 'Sign in with your email address or phone number.' : 'Use the email address registered to your account.'}</p>
+        {customer && <div className="customer-welcome-note"><strong>Sign in now — unlock your ₹120 welcome balance</strong>The welcome balance follows the existing manager approval and membership activation process. It is not an unconditional instant cash credit.</div>}
         <label className="customer-field">{customer ? 'Email address or phone number' : 'Email address'}
           <input type={customer ? 'text' : 'email'} value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={customer ? 'you@example.com or phone number' : 'you@example.com'} autoComplete="username" maxLength={254} required />
         </label>
@@ -56,7 +58,11 @@ export default function LoginForm({ role, accessToken }: { role: LoginRole; acce
         </label>
         {error && <div className="customer-form-alert" role="alert">{error}</div>}
         <button className="customer-submit" disabled={busy}>{busy ? 'Signing in…' : 'Continue'}</button>
-        {customer && <p className="customer-auth-switch">New to Housing.pro? <Link href="/register">Create an account</Link></p>}
+        {customer && <p className="customer-auth-switch">New to Housing.pro? <Link href="/register" onClick={() => {
+          if (accessToken && /^[a-f0-9]{64}$/i.test(accessToken)) {
+            try { window.sessionStorage.setItem(REGISTRATION_RETURN_KEY, `/login/${accessToken}`) } catch {}
+          }
+        }}>Create an account</Link></p>}
         <Link className="customer-back-link" href="/">← Back to Housing.pro</Link>
       </form>
     </section>

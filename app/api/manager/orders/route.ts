@@ -6,6 +6,7 @@ import {
   requireSameOrigin,
   handleRequestSecurityError,
 } from '@/lib/security'
+import { canManagerCancelOrderStatus, MANAGER_CANCELLABLE_ORDER_STATUSES } from '@/lib/order-cancellation'
 
 export async function GET(request: Request) {
   try {
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
         ] } : {}),
       },
       select: {
-        id: true, orderCode: true, amount: true, storehousePrice: true, profit: true, profitRate: true, status: true,
+        id: true, orderCode: true, amount: true, storehousePrice: true, profit: true, finalReturnAmount: true, profitRate: true, status: true,
         paymentStatus: true, paymentReference: true, paymentProofUrl: true, paymentSubmittedAt: true,
         paymentVerifiedAt: true, createdAt: true, updatedAt: true,
         user: {
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
         amount: order.amount.toString(),
         storehousePrice: order.storehousePrice.toString(),
         profit: order.profit.toString(),
+        finalReturnAmount: order.finalReturnAmount?.toString() ?? null,
         profitRate: order.profitRate.toString(),
         property: order.property
           ? {
@@ -224,10 +226,7 @@ export async function POST(req: Request) {
         }
 
         if (action === 'CANCEL') {
-          if (
-            order.status === 'COMPLETED' ||
-            order.status === 'RE_RENTED'
-          ) {
+          if (order.status !== 'CANCELLED' && !canManagerCancelOrderStatus(order.status)) {
             throw new Error('CANNOT_CANCEL_COMPLETED')
           }
 
@@ -241,13 +240,7 @@ export async function POST(req: Request) {
             where: {
               id: order.id,
               managerId: session.managerId!,
-              status: {
-                notIn: [
-                  'COMPLETED',
-                  'RE_RENTED',
-                  'CANCELLED',
-                ],
-              },
+              status: { in: [...MANAGER_CANCELLABLE_ORDER_STATUSES] },
             },
             data: {
               status: 'CANCELLED',

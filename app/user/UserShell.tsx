@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
+import TierBadge from "./TierBadge"
+import { isDisplayTier, type DisplayTier } from "@/lib/display-tier"
 
 const userGroups = [
   {
@@ -36,6 +38,7 @@ const userGroups = [
     items: [
       { label: "Notifications", href: "/user/notifications" },
       { label: "Profile", href: "/user/profile" },
+      { label: "Tier", href: "/user/tier" },
       { label: "Support", href: "/user/support" },
       { label: "Settings", href: "/user/settings" },
     ],
@@ -80,6 +83,7 @@ export default function UserShell({
   const [unreadCount, setUnreadCount] = useState(notificationCount)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState("")
+  const [displayTier, setDisplayTier] = useState<DisplayTier | null>(null)
 
   const initial = userName.charAt(0).toUpperCase()
 
@@ -89,6 +93,15 @@ export default function UserShell({
       .then((response) => response.ok ? response.json() : null)
       .then((data) => { if (active && data) setUnreadCount(Number(data.unreadCount || 0)) })
       .catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetch("/api/user/tier", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (active) setDisplayTier(isDisplayTier(data?.displayTier) ? data.displayTier : null) })
+      .catch(() => { if (active) setDisplayTier(null) })
     return () => { active = false }
   }, [])
 
@@ -115,6 +128,7 @@ export default function UserShell({
       "/user/progress": "Progress", "/user/revenue": "Revenue", "/user/wallet": "Wallet",
       "/user/deposits": "Deposits", "/user/withdrawals": "Withdrawals", "/user/notifications": "Notifications",
       "/user/profile": "Profile", "/user/referral": "Account Access", "/user/support": "Support", "/user/settings": "Settings",
+      "/user/tier": "Your Tier",
     }
     return labels[pathname] || "Your Account"
   }
@@ -156,6 +170,7 @@ export default function UserShell({
           <div>
             <strong>{userName}</strong>
             <span>{membership.replaceAll("_", " ")}</span>
+            <TierBadge tier={displayTier} />
           </div>
         </div>
 
@@ -242,7 +257,7 @@ export default function UserShell({
             <div className="hp-shell-profile">
               <div className="hp-shell-avatar small">{initial}</div>
               <div>
-                <strong>{userName}</strong>
+                <strong className="hp-profile-name">{userName}<TierBadge tier={displayTier} /></strong>
                 <span>Housing.pro account</span>
               </div>
             </div>
@@ -317,6 +332,17 @@ export default function UserShell({
           font-size: 10px;
           text-transform: capitalize;
         }
+
+        .hp-user-account .hp-display-tier {
+          display: inline-flex;
+          width: fit-content;
+          margin-top: 7px;
+        }
+
+        .hp-profile-name { display:flex!important; align-items:center; gap:8px; }
+
+        .hp-display-tier { align-items:center; padding:4px 9px; border:1px solid #dce8dc; border-radius:999px; background:#f1f7ef; color:#315c45; font-size:10px; font-weight:800; line-height:1.2; white-space:nowrap; }
+        .hp-display-tier.unassigned { border-color:#e7ebe4; background:#f7f8f6; color:#78827a; font-weight:650; }
 
         .hp-user-sidebar .hp-shell-nav {
           flex: 1;

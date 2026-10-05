@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import UserShell from "../../UserShell"
 import { CustomerPageState, customerStatus, money } from "../../CustomerUI"
+import { clearWalletBookingRequestId, getWalletBookingRequestId } from "../../booking-request"
 
 type Property = { id: string; title: string; location?: string | null; description?: string | null; price: number | string; imageUrl?: string | null }
 
@@ -40,14 +41,16 @@ export default function PropertyDetailPage() {
 
   async function book() {
     if (!property) return
+    const bookingRequestId = getWalletBookingRequestId(property.id)
     setBusy(true); setError("")
     try {
       const response = await fetch("/api/user/orders", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: params.id, amount: String(property.price) }),
+        body: JSON.stringify({ propertyId: params.id, expectedPrice: String(property.price), bookingRequestId }),
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || "Unable to create your booking.")
+      clearWalletBookingRequestId(property.id, bookingRequestId)
       const orderId = result.order?.id || result.id
       if (!orderId) throw new Error("Your booking was created but its details could not be opened.")
       router.push("/user/orders/" + orderId)
@@ -67,9 +70,9 @@ export default function PropertyDetailPage() {
           <span className="property-detail-location">{property.location || "Featured property"}</span>
           <h1>{property.title}</h1>
           <div className="property-detail-price">{money(property.price)}</div>
-          <p>{property.description || "Review the booking details and payment instructions before continuing."}</p>
-          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Preparing your rental request…" : "Request this rental"}</button>
-          <div className="property-payment-note"><strong>How payment works</strong><span>Housing.pro does not process payment through a gateway in this flow. After your request is created, follow the payment instructions in your booking and submit the reference or proof. Your booking stays pending until the manager verifies it.</span></div>
+          <p>{property.description || "Review the property details and rent amount before confirming your booking."}</p>
+          <div className="property-payment-note"><strong>Wallet payment</strong><span>Get Rent deducts the displayed rent from your available wallet balance. The active booking appears in your Manager’s panel.</span></div>
+          <button className="customer-primary-button" onClick={book} disabled={busy}>{busy ? "Processing booking…" : `Book Now · ${money(property.price)}`}</button>
         </section>
       </div>
     </>}
